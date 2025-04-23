@@ -5,5 +5,4 @@ Flask-WTF==1.1.1
 psycopg2-binary==2.9.7
 gunicorn==21.2.0
 selenium==4.11.2
-pywin32==306; sys_platform == 'win32'
 python-dotenv==1.0.0 
