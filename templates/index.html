@@ -1,0 +1,201 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="ui segment" style="background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+  <h2 class="ui header" style="color: var(--tiger-red);">Order List</h2>
+  
+  <div style="margin-bottom: 1rem;">
+    <a href="{{ url_for('create_order') }}" class="ui tiger-button">
+      <i class="plus circle icon"></i>
+      Create New Order
+    </a>
+  </div>
+
+  <table class="ui celled table" style="margin-top: 1rem;">
+    <thead>
+      <tr style="background-color: var(--tiger-black); color: white;">
+        <th>ID</th>
+        <th>Site</th>
+        <th>Supplier</th>
+        <th>Description</th>
+        <th>Total Amount</th>
+        <th>Submitter (Emp #, Name)</th>
+        <th>Approver (Emp #, Name)</th>
+        <th>Status</th>
+        <th>Created At</th>
+        <th>Approved At</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for order in orders %}
+      <tr>
+        <td>{{ order.id }}</td>
+        <td>{{ order.submitter }}</td>
+        <td>{{ order.supplier }}</td>
+        <td style="white-space: pre-wrap;">{{ order.description }}</td>
+        <td>{{ "{:.2f}".format(order.amount) }}</td>
+        <td>
+          {% if order.submitter_emp_number and order.submitter_emp_name %}
+            {{ order.submitter_emp_number }}, {{ order.submitter_emp_name }}
+          {% else %}
+            N/A
+          {% endif %}
+        </td>
+        <td>
+          {% if order.approver_emp_number and order.approver_emp_name %}
+            {{ order.approver_emp_number }}, {{ order.approver_emp_name }}
+          {% else %}
+            N/A
+          {% endif %}
+        </td>
+        <td>
+          {% if order.status == 'pending' %}
+            <span style="color: var(--tiger-red);">{{ order.status }}</span>
+          {% elif order.status == 'approved' %}
+            <span style="color: #2ecc71;">{{ order.status }}</span>
+          {% elif order.status == 'declined' %}
+            <span style="color: #e74c3c;">{{ order.status }}</span>
+          {% else %}
+            {{ order.status }}
+          {% endif %}
+        </td>
+        <td>{{ order.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td>
+          {% if order.approved_at %}
+            {{ order.approved_at.strftime('%Y-%m-%d %H:%M:%S') }}
+          {% else %}
+            Not Approved
+          {% endif %}
+        </td>
+        <td>
+          {% if order.status == 'pending' and ((order.submitter_role == 'Admin' and current_user.role == 'Manager') or (order.submitter_role == 'Manager' and current_user.role == 'Admin')) %}
+            <button class="ui tiger-button approve-btn" data-order-id="{{ order.id }}">Approve</button>
+            <button class="ui tiger-button secondary decline-btn" data-order-id="{{ order.id }}">Decline</button>
+          {% endif %}
+          <a href="{{ url_for('print_order', order_id=order.id) }}" class="ui tiger-button">Print</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Modal for Approver Employee Details -->
+<div class="ui modal" id="approveModal">
+  <i class="close icon"></i>
+  <div class="header" style="background-color: var(--tiger-red); color: white;">Enter Approver Employee Details</div>
+  <div class="content">
+    <div class="ui form">
+      <div class="field">
+        <label>Employee Number</label>
+        <input type="text" id="modal_approve_emp_number" placeholder="Enter employee number">
+      </div>
+      <div class="field">
+        <label>Employee Name</label>
+        <input type="text" id="modal_approve_emp_name" placeholder="Enter employee name">
+      </div>
+    </div>
+  </div>
+  <div class="actions">
+    <div class="ui black deny button">Cancel</div>
+    <div class="ui tiger-button right labeled icon button" id="confirmApproveModal">
+      Confirm <i class="check icon"></i>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden form for submitting approver details -->
+<form id="approveForm" method="POST" style="display:none;">
+  <input type="hidden" name="approver_emp_number" id="hidden_approve_emp_number">
+  <input type="hidden" name="approver_emp_name" id="hidden_approve_emp_name">
+</form>
+
+<!-- Modal for Decliner Employee Details -->
+<div class="ui modal" id="declineModal">
+  <i class="close icon"></i>
+  <div class="header" style="background-color: var(--tiger-black); color: white;">Enter Decliner Employee Details</div>
+  <div class="content">
+    <div class="ui form">
+      <div class="field">
+        <label>Employee Number</label>
+        <input type="text" id="modal_decline_emp_number" placeholder="Enter employee number">
+      </div>
+      <div class="field">
+        <label>Employee Name</label>
+        <input type="text" id="modal_decline_emp_name" placeholder="Enter employee name">
+      </div>
+    </div>
+  </div>
+  <div class="actions">
+    <div class="ui black deny button">Cancel</div>
+    <div class="ui tiger-button secondary right labeled icon button" id="confirmDeclineModal">
+      Confirm <i class="check icon"></i>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden form for submitting decline details -->
+<form id="declineForm" method="POST" style="display:none;">
+  <input type="hidden" name="approver_emp_number" id="hidden_decline_emp_number">
+  <input type="hidden" name="approver_emp_name" id="hidden_decline_emp_name">
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var currentOrderId = null;
+  var currentDeclineOrderId = null;
+  $(document).ready(function(){
+    // Initialize modals after jQuery and Semantic UI are loaded.
+    $('#approveModal').modal({blurring: true});
+    $('#declineModal').modal({blurring: true});
+
+    // Approve button click event.
+    $(document).on('click', '.approve-btn', function(){
+      currentOrderId = $(this).data('order-id');
+      console.log("Approve clicked for order ID: " + currentOrderId);
+      $('#approveModal').modal('show');
+    });
+
+    // Confirm approve modal.
+    $('#confirmApproveModal').click(function(){
+      var empNumber = $('#modal_approve_emp_number').val().trim();
+      var empName = $('#modal_approve_emp_name').val().trim();
+      if(empNumber === "" || empName === ""){
+        alert("Please enter both Employee Number and Employee Name.");
+        return;
+      }
+      $('#hidden_approve_emp_number').val(empNumber);
+      $('#hidden_approve_emp_name').val(empName);
+      $('#approveModal').modal('hide');
+      // Set form action to post to the appropriate route.
+      $('#approveForm').attr('action', '/approve/' + currentOrderId);
+      $('#approveForm').submit();
+    });
+
+    // Decline button click event.
+    $(document).on('click', '.decline-btn', function(){
+      currentDeclineOrderId = $(this).data('order-id');
+      console.log("Decline clicked for order ID: " + currentDeclineOrderId);
+      $('#declineModal').modal('show');
+    });
+
+    // Confirm decline modal.
+    $('#confirmDeclineModal').click(function(){
+      var empNumber = $('#modal_decline_emp_number').val().trim();
+      var empName = $('#modal_decline_emp_name').val().trim();
+      if(empNumber === "" || empName === ""){
+        alert("Please enter both Employee Number and Employee Name.");
+        return;
+      }
+      $('#hidden_decline_emp_number').val(empNumber);
+      $('#hidden_decline_emp_name').val(empName);
+      $('#declineModal').modal('hide');
+      // Set form action to post to the decline route.
+      $('#declineForm').attr('action', '/decline/' + currentDeclineOrderId);
+      $('#declineForm').submit();
+    });
+  });
+</script>
+{% endblock %}

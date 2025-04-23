@@ -1,0 +1,89 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="ui segment" style="background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+  <h2 class="ui header" style="color: var(--tiger-red);">Create New Account</h2>
+  <form class="ui form" method="POST">
+    <div class="field">
+      <label>Site</label>
+      <select name="site" id="site" required>
+        <option value="">Select a Site</option>
+        {% for key, value in sites.items() %}
+          <option value="{{ key }}">{{ value }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Username</label>
+      <input type="text" name="username" id="username" readonly>
+    </div>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" name="email" placeholder="Enter your email address" required>
+    </div>
+    <div class="field">
+      <label>Role</label>
+      <select name="role" id="role" required>
+        <option value="">Select a Role</option>
+        {% for key, value in roles.items() %}
+          <option value="{{ key }}">{{ value }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Password 
+        <small>(min 8 characters, at least one uppercase letter, one number, and one special character)</small>
+      </label>
+      <div class="ui action input">
+        <input type="password" name="password" id="register-password" placeholder="Enter a strong password" required>
+        <button type="button" class="ui icon tiger-button secondary" onclick="togglePassword('register-password', this)">
+          <i class="eye icon"></i>
+        </button>
+      </div>
+      <div id="register-password-feedback" style="margin-top:5px;"></div>
+    </div>
+    <button class="ui tiger-button" type="submit">Create Account</button>
+  </form>
+</div>
+
+<script>
+  // Auto-populate username based on the selected site.
+  document.getElementById("site").addEventListener("change", function() {
+    var selected = this.value;
+    document.getElementById("username").value = selected;
+  });
+
+  // Toggle password visibility.
+  function togglePassword(fieldId, btn) {
+    var input = document.getElementById(fieldId);
+    if (input.type === "password") {
+      input.type = "text";
+      btn.innerHTML = '<i class="eye slash icon"></i>';
+    } else {
+      input.type = "password";
+      btn.innerHTML = '<i class="eye icon"></i>';
+    }
+  }
+
+  // Validate the password against criteria.
+  function validatePasswordCriteria(password) {
+    if (password.length < 8) return false;
+    if (!/[A-Z]/.test(password)) return false;
+    if (!/\d/.test(password)) return false;
+    if (!/[\W_]/.test(password)) return false;
+    return true;
+  }
+
+  document.getElementById("register-password").addEventListener("input", function() {
+    var feedback = document.getElementById("register-password-feedback");
+    if (this.value === "") {
+      feedback.innerHTML = "";
+      return;
+    }
+    if (validatePasswordCriteria(this.value)) {
+      feedback.innerHTML = '<i class="green check circle icon"></i> Password meets criteria.';
+    } else {
+      feedback.innerHTML = '<i class="red times circle icon"></i> Password does not meet criteria.';
+    }
+  });
+</script>
+{% endblock %}

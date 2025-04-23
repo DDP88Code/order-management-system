@@ -1,0 +1,143 @@
+{% extends "layout.html" %}
+{% block content %}
+<style>
+  .status-approved {
+    color: #2ecc71;
+  }
+  .status-pending {
+    color: var(--tiger-red);
+  }
+  .status-declined {
+    color: #e74c3c;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 10px;
+  }
+
+  .action-buttons .ui.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 150px;
+  }
+
+  .action-buttons i.icon {
+    margin-right: 8px !important;
+  }
+</style>
+
+<div class="ui segment" style="background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+  <h2 class="ui header" style="color: var(--tiger-red);">Order {{ order.id }} Details</h2>
+
+  <div class="ui segment">
+    <!-- Company Logo at the top using an absolute URL -->
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="{{ request.url_root }}static/logo.png" alt="Company Logo" style="max-height: 80px;">
+    </div>
+
+    <div class="ui grid">
+      <div class="eight wide column">
+        <p><strong style="color: var(--tiger-black);">Site:</strong> {{ order.submitter }}</p>
+        <p><strong style="color: var(--tiger-black);">Supplier:</strong> {{ order.supplier }}</p>
+      </div>
+    </div>
+
+    {% set ns = namespace(total=0) %}
+    {% for line in order.description.split('\n') %}
+      {% if line %}
+        <div style="margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:5px;">
+          {% for part in line.split(', ') %}
+            {% set field_parts = part.split(': ', 1) %}
+            {% if field_parts|length == 2 %}
+              {% if field_parts[0] == "QTY" %}
+                <p><strong style="color: var(--tiger-black);">QTY:</strong> {{ field_parts[1] }}</p>
+              {% elif field_parts[0] == "Description" %}
+                <p><strong style="color: var(--tiger-black);">Description:</strong> {{ field_parts[1] }}</p>
+              {% elif field_parts[0] == "Unit Cost Excl." %}
+                <p><strong style="color: var(--tiger-black);">Unit Cost Excl.:</strong> R{{ field_parts[1] }}</p>
+              {% elif field_parts[0] == "Total Unit Cost Excl." %}
+                <p><strong style="color: var(--tiger-black);">Total Unit Cost Excl.:</strong> R{{ field_parts[1] }}</p>
+                {% set ns.total = ns.total + (field_parts[1]|float) %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endfor %}
+
+    <div class="ui divider"></div>
+
+    <div style="background-color: #f8f8f8; padding: 1rem; border-radius: 4px;">
+      <p><strong style="color: var(--tiger-black);">Total Excl:</strong> R{{ "%.2f"|format(ns.total) }}</p>
+      {% set vat = ns.total * 0.155 %}
+      <p><strong style="color: var(--tiger-black);">VAT:</strong> R{{ "%.2f"|format(vat) }}</p>
+      {% set total_incl = ns.total + vat %}
+      <p><strong style="color: var(--tiger-black);">Total Amount Incl.:</strong> R{{ "%.2f"|format(total_incl) }}</p>
+    </div>
+
+    <div class="ui divider"></div>
+
+    <div class="ui two column grid">
+      <div class="column">
+        <p><strong style="color: var(--tiger-black);">Submitter (Emp #, Name):</strong>
+          {% if order.submitter_emp_number and order.submitter_emp_name %}
+            {{ order.submitter_emp_number }}, {{ order.submitter_emp_name }}
+          {% else %}
+            N/A
+          {% endif %}
+        </p>
+        <p><strong style="color: var(--tiger-black);">Approver (Emp #, Name):</strong>
+          {% if order.approver_emp_number and order.approver_emp_name %}
+            {{ order.approver_emp_number }}, {{ order.approver_emp_name }}
+          {% else %}
+            N/A
+          {% endif %}
+        </p>
+      </div>
+      <div class="column">
+        <p><strong style="color: var(--tiger-black);">Status:</strong> 
+          <span class="status-{% if order.status == 'approved' %}approved{% elif order.status == 'pending' %}pending{% else %}declined{% endif %}">
+            {{ order.status }}
+          </span>
+        </p>
+        <p><strong style="color: var(--tiger-black);">Created At:</strong> {{ order.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+        <p><strong style="color: var(--tiger-black);">Approved At:</strong>
+          {% if order.approved_at %}
+            {{ order.approved_at.strftime('%Y-%m-%d %H:%M:%S') }}
+          {% else %}
+            Not Approved
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom buttons wrapped with the "no-print" class to hide them when printing or generating PDF -->
+<div class="no-print action-buttons" style="margin-top: 1rem;">
+  <button onclick="window.print()" class="ui tiger-button">
+    <i class="print icon"></i>
+    Print
+  </button>
+  <button onclick="handleSupplier()" class="ui tiger-button">
+    <i class="paper plane icon"></i>
+    Send to Supplier
+  </button>
+  <button onclick="handleBack()" class="ui tiger-button secondary">
+    <i class="arrow left icon"></i>
+    Back to Orders
+  </button>
+</div>
+
+<script>
+function handleSupplier() {
+  window.location.href = "{{ url_for('send_to_supplier', order_id=order.id) }}";
+}
+
+function handleBack() {
+  window.location.href = "{{ url_for('index') }}";
+}
+</script>
+{% endblock %}

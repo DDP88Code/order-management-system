@@ -1,0 +1,198 @@
+{% extends "layout.html" %}
+{% block content %}
+<style>
+  /* Custom button styles to match Tiger theme */
+  .ui.tiger-button {
+    background-color: var(--tiger-red) !important;
+    color: white !important;
+  }
+  .ui.tiger-button:hover {
+    background-color: #c41430 !important;
+  }
+  .ui.tiger-button.secondary {
+    background-color: var(--tiger-black) !important;
+  }
+  .ui.tiger-button.secondary:hover {
+    background-color: #333 !important;
+  }
+</style>
+
+<h2 class="ui header">Create New Order</h2>
+<form class="ui form" id="orderForm" method="POST">
+  <div class="field">
+    <label>Supplier</label>
+    <input type="text" name="supplier" placeholder="Enter supplier name" required>
+  </div>
+  
+  <!-- Item Details Table -->
+  <div class="field">
+    <label>Item Details</label>
+    <table class="ui celled table" id="itemTable">
+      <thead>
+         <tr>
+           <th style="width:10%;">QTY</th>
+           <th style="width:40%;">Description</th>
+           <th style="width:20%;">Unit Cost Excl.</th>
+           <th style="width:20%;">Total Unit Cost Excl.</th>
+           <th style="width:10%;">Action</th>
+         </tr>
+      </thead>
+      <tbody id="itemRows">
+        <tr class="item-row">
+          <td>
+            <input type="number" name="item_qty[]" class="item-qty" min="0" value="0" required>
+          </td>
+          <td>
+            <input type="text" name="item_desc[]" class="item-desc" placeholder="Enter description" required>
+          </td>
+          <td>
+            <input type="number" name="item_unit_cost[]" class="item-unit-cost" step="0.01" min="0" value="0" required>
+          </td>
+          <td>
+            <input type="number" name="item_total_cost[]" class="item-total-cost" step="0.01" readonly value="0">
+          </td>
+          <td>
+            <button type="button" class="ui mini tiger-button secondary remove-item">-</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <button type="button" class="ui mini tiger-button" id="add-item">Add Item</button>
+  </div>
+  
+  <!-- Summary Fields -->
+  <div class="fields">
+    <div class="eight wide field">
+      <label>Total Excl</label>
+      <input type="number" id="total_excl" readonly value="0">
+    </div>
+    <div class="four wide field">
+      <label>VAT (15.5%)</label>
+      <input type="number" id="vat" readonly value="0">
+    </div>
+    <div class="four wide field">
+      <label>Total Amount Incl.</label>
+      <input type="number" name="amount" id="total_amount_incl" readonly value="0">
+    </div>
+  </div>
+
+  <!-- Hidden fields for submitter employee details -->
+  <input type="hidden" name="submitter_emp_number" id="submitter_emp_number">
+  <input type="hidden" name="submitter_emp_name" id="submitter_emp_name">
+  
+  <button type="button" class="ui tiger-button" id="openSubmitModal">Submit Order</button>
+</form>
+
+<!-- Modal for Submitter Employee Details -->
+<div class="ui modal" id="submitModal">
+  <i class="close icon"></i>
+  <div class="header">Enter Employee Details</div>
+  <div class="content">
+    <div class="ui form">
+      <div class="field">
+        <label>Employee Number</label>
+        <input type="text" id="modal_submit_emp_number" placeholder="Enter employee number">
+      </div>
+      <div class="field">
+        <label>Employee Name</label>
+        <input type="text" id="modal_submit_emp_name" placeholder="Enter employee name">
+      </div>
+    </div>
+  </div>
+  <div class="actions">
+    <div class="ui black deny button">Cancel</div>
+    <div class="ui tiger-button right labeled icon button" id="confirmSubmitModal">
+      Confirm <i class="check icon"></i>
+    </div>
+  </div>
+</div>
+
+{% block scripts %}
+<script>
+  $(document).ready(function(){
+
+    // Function to recalc one row's total and update summary.
+    function recalcRow($row) {
+      var qty = parseFloat($row.find('.item-qty').val()) || 0;
+      var unitCost = parseFloat($row.find('.item-unit-cost').val()) || 0;
+      var total = qty * unitCost;
+      $row.find('.item-total-cost').val(total.toFixed(2));
+    }
+    
+    // Recalculate overall summary based on all item rows.
+    function recalcSummary() {
+      var totalExcl = 0;
+      $('.item-total-cost').each(function(){
+        totalExcl += parseFloat($(this).val()) || 0;
+      });
+      var vat = totalExcl * 0.155;
+      var totalIncl = totalExcl + vat;
+      $('#total_excl').val(totalExcl.toFixed(2));
+      $('#vat').val(vat.toFixed(2));
+      $('#total_amount_incl').val(totalIncl.toFixed(2));
+    }
+    
+    // Recalculate whenever QTY or Unit Cost changes.
+    $('#itemRows').on('input', '.item-qty, .item-unit-cost', function(){
+      var $row = $(this).closest('.item-row');
+      recalcRow($row);
+      recalcSummary();
+    });
+    
+    // Event handler to format Unit Cost field to two decimals on blur.
+    $('#itemRows').on('blur', '.item-unit-cost', function(){
+      var value = parseFloat($(this).val()) || 0;
+      $(this).val(value.toFixed(2));
+    });
+    
+    // Add new item row.
+    $('#add-item').on('click', function(){
+      var newRow = `<tr class="item-row">
+          <td>
+            <input type="number" name="item_qty[]" class="item-qty" min="0" value="0" required>
+          </td>
+          <td>
+            <input type="text" name="item_desc[]" class="item-desc" placeholder="Enter description" required>
+          </td>
+          <td>
+            <input type="number" name="item_unit_cost[]" class="item-unit-cost" step="0.01" min="0" value="0" required>
+          </td>
+          <td>
+            <input type="number" name="item_total_cost[]" class="item-total-cost" step="0.01" readonly value="0">
+          </td>
+          <td>
+            <button type="button" class="ui mini tiger-button secondary remove-item">-</button>
+          </td>
+        </tr>`;
+      $('#itemRows').append(newRow);
+    });
+    
+    // Remove an item row.
+    $('#itemRows').on('click', '.remove-item', function(){
+      $(this).closest('.item-row').remove();
+      recalcSummary();
+    });
+    
+    // Open the submit modal when button is clicked.
+    $("#openSubmitModal").on("click", function(){
+      $("#submitModal").modal("show");
+    });
+    
+    // Validate modal fields and then submit the form.
+    $("#confirmSubmitModal").on("click", function(){
+      var empNumber = $("#modal_submit_emp_number").val().trim();
+      var empName   = $("#modal_submit_emp_name").val().trim();
+      if(empNumber === "" || empName === ""){
+        alert("Please enter both Employee Number and Employee Name.");
+        return;
+      }
+      $("#submitter_emp_number").val(empNumber);
+      $("#submitter_emp_name").val(empName);
+      $("#submitModal").modal("hide");
+      $("#orderForm").submit();
+    });
+    
+  });
+</script>
+{% endblock %}
+{% endblock %}
