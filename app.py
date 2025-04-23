@@ -659,6 +659,17 @@ def setup_users():
 # Initialize database and create tables
 def init_db():
     with app.app_context():
+        # Import and run the migration script first
+        from add_site_field import migrate
+        try:
+            migrate()
+            print("Migration completed successfully")
+        except Exception as e:
+            print(f"Error during migration: {e}")
+            # Continue with table creation even if migration fails
+            # This allows the app to start with a fresh database if needed
+        
+        # Create tables if they don't exist
         db.create_all()
         setup_users()
 

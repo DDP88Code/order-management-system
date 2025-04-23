@@ -9,6 +9,17 @@ def migrate():
         
         if is_postgres:
             # PostgreSQL syntax
+            # First check if the user table exists
+            result = conn.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'user'
+                )
+            """)
+            if not result.scalar():
+                print("User table does not exist yet, skipping migration")
+                return
+                
             # Check if site column exists in User table
             result = conn.execute("""
                 SELECT COUNT(*) 
@@ -20,6 +31,17 @@ def migrate():
                 conn.execute('ALTER TABLE "user" ADD COLUMN site VARCHAR(100)')
                 print("Added site column to User table")
             
+            # Check if order table exists
+            result = conn.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'order'
+                )
+            """)
+            if not result.scalar():
+                print("Order table does not exist yet, skipping migration")
+                return
+                
             # Check if site column exists in Order table
             result = conn.execute("""
                 SELECT COUNT(*) 
@@ -50,6 +72,15 @@ def migrate():
             """)
         else:
             # SQLite syntax
+            # First check if the user table exists
+            result = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='user'
+            """)
+            if not result.scalar():
+                print("User table does not exist yet, skipping migration")
+                return
+                
             # Check if site column exists in User table
             result = conn.execute("""
                 SELECT COUNT(*) 
@@ -60,6 +91,15 @@ def migrate():
                 conn.execute("ALTER TABLE user ADD COLUMN site VARCHAR(100)")
                 print("Added site column to User table")
             
+            # Check if order table exists
+            result = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='order'
+            """)
+            if not result.scalar():
+                print("Order table does not exist yet, skipping migration")
+                return
+                
             # Check if site column exists in Order table
             result = conn.execute("""
                 SELECT COUNT(*) 
