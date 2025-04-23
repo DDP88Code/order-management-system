@@ -53,6 +53,7 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(120), nullable=False) 
     password = db.Column(db.String(50), nullable=False)  # For demo purposes only. 
     role = db.Column(db.String(20), nullable=False)  # "Admin" or "Manager" 
+    site = db.Column(db.String(100), nullable=False)  # Store the selected site
     def __repr__(self): 
         return f"<User {self.username} - {self.role}>" 
 
@@ -62,6 +63,7 @@ class Order(db.Model):
     description = db.Column(db.String(500), nullable=False) 
     amount = db.Column(db.Float, nullable=False)  # Total Amount field (Incl.)
     submitter = db.Column(db.String(50), nullable=False)  # Holds the Site selected. 
+    site = db.Column(db.String(100), nullable=False)  # Store the selected site
     created_at = db.Column(db.DateTime, default=datetime.now) 
     status = db.Column(db.String(20), default="pending") 
     approver = db.Column(db.String(50)) 
@@ -286,6 +288,7 @@ def register():
         site = request.form.get("site") 
         selected_role = request.form.get("role") 
         email = request.form.get("email") 
+        username = request.form.get("username")  # This will be the email address
         password = request.form.get("password") 
         
         # Improved validation messages
@@ -314,11 +317,19 @@ def register():
             flash(f"Password must contain {', '.join(password_errors)}.", "error")
             return render_template("register.html", sites=sites, roles=roles)
 
-        username = site  # Username is derived from the selected site. 
-        if User.query.filter_by(username=username).first(): 
-            flash("An account for this site already exists. Please log in.", "danger") 
+        # Check if email is already registered
+        if User.query.filter_by(username=email).first(): 
+            flash("An account with this email address already exists. Please log in.", "danger") 
             return redirect(url_for("login")) 
-        new_user = User(username=username, email=email, password=password, role=selected_role) 
+
+        # Create new user with email as username
+        new_user = User(
+            username=email,  # Use email as username
+            email=email,
+            password=password,
+            role=selected_role,
+            site=site
+        ) 
         db.session.add(new_user) 
         db.session.commit() 
         flash("Account created successfully! Please log in.", "success") 
@@ -334,6 +345,12 @@ def create_order():
         if not supplier:
             flash("Supplier is required.", "danger")
             return render_template("create_order.html")
+        
+        # Get the user's site from their account
+        user = User.query.filter_by(username=current_user.username).first()
+        if not user:
+            flash("User account not found.", "danger")
+            return redirect(url_for("index"))
         
         # Gather item details arrays from the new item table. 
         item_descs = request.form.getlist("item_desc[]")
@@ -380,40 +397,37 @@ def create_order():
             description=description,
             amount=amount,
             submitter=current_user.username,
+            site=user.site,  # Store the user's site
             submitter_emp_number=submitter_emp_number,
             submitter_emp_name=submitter_emp_name
         )
         db.session.add(new_order)
         db.session.commit()
         flash("Order created successfully!", "success")
-        # Email notification to the opposing role. 
-        if current_user.role == "Admin":
+        
+        # Find the approver at the same site with the opposite role
+        approver_role = "Manager" if current_user.role == "Admin" else "Admin"
+        approver = User.query.filter_by(site=user.site, role=approver_role).first()
+        
+        if approver:
+            # Email notification to the approver at the same site
             subject = "New Order Awaiting Approval"
             body = (
-                f"Dear Manager,\n\n"
-                f"A new order created by {current_user.username} (Admin) is awaiting your approval.\n"
+                f"Dear {approver_role},\n\n"
+                f"A new order created by {current_user.username} ({current_user.role}) at {user.site} is awaiting your approval.\n"
                 f"Order ID: {new_order.id}\n"
+                f"Site: {new_order.site}\n"
                 f"Supplier: {new_order.supplier}\n"
                 f"Description:\n{new_order.description}\n"
                 f"Total Amount Incl.: {new_order.amount:.2f}\n"
                 f"Submitter (Emp #, Name): {new_order.submitter_emp_number}, {new_order.submitter_emp_name}\n\n"
                 "Please log in to review and approve the order."
             )
-            send_email_via_outlook(recipient="deand@twt.to", subject=subject, body=body, sender="deand@twt.to")
-        elif current_user.role == "Manager":
-            subject = "New Order Awaiting Approval"
-            body = (
-                f"Dear Admin,\n\n"
-                f"A new order created by {current_user.username} (Manager) is awaiting your approval.\n"
-                f"Order ID: {new_order.id}\n"
-                f"Supplier: {new_order.supplier}\n"
-                f"Description:\n{new_order.description}\n"
-                f"Total Amount Incl.: {new_order.amount:.2f}\n"
-                f"Submitter (Emp #, Name): {new_order.submitter_emp_number}, {new_order.submitter_emp_name}\n\n"
-                "Please log in to review and approve the order."
-            )
-            send_email_via_outlook(recipient="deand@twt.to", subject=subject, body=body, sender="deand@twt.to")
-        flash("Notification sent for approval.", "info")
+            send_email_via_outlook(recipient=approver.email, subject=subject, body=body, sender=current_user.email)
+            flash(f"Notification sent to {approver.email} for approval.", "info")
+        else:
+            flash(f"No {approver_role} found at {user.site} to notify.", "warning")
+            
         return redirect(url_for("index"))
     return render_template("create_order.html")
 
@@ -444,25 +458,18 @@ def approve_order(order_id):
         order.approver_emp_name = approver_emp_name 
         db.session.commit() 
         flash(f"Order #{order.id} has been successfully approved.", "success") 
+        
+        # Send email to the submitter
         subject = "Your Order Has Been Approved" 
-        if submitter_obj.role == "Admin": 
-            body = ( 
-                f"Dear Admin,\n\n" 
-                f"Your order (ID: {order.id}) has been approved by the Manager ({current_user.username}).\n" 
-                f"Approver (Emp #, Name): {order.approver_emp_number}, {order.approver_emp_name}\n" 
-                "You can now proceed to print the order.\n\n" 
-                "Best regards,\nOrder Management System" 
-            ) 
-        else: 
-            body = ( 
-                f"Dear Manager,\n\n" 
-                f"Your order (ID: {order.id}) has been approved by the Admin ({current_user.username}).\n" 
-                f"Approver (Emp #, Name): {order.approver_emp_number}, {order.approver_emp_name}\n" 
-                "You can now proceed to print the order.\n\n" 
-                "Best regards,\nOrder Management System" 
-            ) 
-        send_email_via_outlook(recipient="deand@twt.to", subject=subject, body=body, sender="deand@twt.to") 
-        flash("Notification sent regarding approval.", "info") 
+        body = ( 
+            f"Dear {submitter_obj.role},\n\n" 
+            f"Your order (ID: {order.id}) at {order.site} has been approved by {current_user.username} ({current_user.role}).\n" 
+            f"Approver (Emp #, Name): {order.approver_emp_number}, {order.approver_emp_name}\n" 
+            "You can now proceed to print the order.\n\n" 
+            "Best regards,\nOrder Management System" 
+        ) 
+        send_email_via_outlook(recipient=submitter_obj.email, subject=subject, body=body, sender=current_user.email) 
+        flash(f"Notification sent to {submitter_obj.email} regarding approval.", "info") 
     else: 
         flash("You are not authorized to approve this order.", "danger") 
     return redirect(url_for("index")) 
@@ -493,14 +500,17 @@ def decline_order(order_id):
         order.approver_emp_name = approver_emp_name
         db.session.commit()
         flash(f"Order #{order.id} has been declined.", "error")
+        
+        # Send email to the submitter
         subject = "Your Order Has Been Declined"
         body = (
-            f"Dear {submitter_obj.username},\n\n"
-            f"Your order (ID: {order.id}) has been declined by {current_user.username}.\n"
+            f"Dear {submitter_obj.role},\n\n"
+            f"Your order (ID: {order.id}) at {order.site} has been declined by {current_user.username} ({current_user.role}).\n"
             f"Decliner (Emp #, Name): {order.approver_emp_number}, {order.approver_emp_name}\n\n"
             "Please contact your approver for more information."
         )
-        send_email_via_outlook(recipient="deand@twt.to", subject=subject, body=body, sender="deand@twt.to")
+        send_email_via_outlook(recipient=submitter_obj.email, subject=subject, body=body, sender=current_user.email)
+        flash(f"Notification sent to {submitter_obj.email} regarding decline.", "info")
     else:
         flash("You are not authorized to decline this order.", "danger")
     return redirect(url_for("index"))
@@ -620,7 +630,8 @@ def setup_users():
             username="Admin",
             email=os.getenv('ADMIN_EMAIL', 'admin@twt.to'),
             password=os.getenv('ADMIN_PASSWORD', 'Admin'),
-            role="Admin"
+            role="Admin",
+            site="TWT Alberton"
         )
         db.session.add(admin)
     
@@ -630,7 +641,8 @@ def setup_users():
             username="Manager",
             email=os.getenv('MANAGER_EMAIL', 'manager@twt.to'),
             password=os.getenv('MANAGER_PASSWORD', 'Manager'),
-            role="Manager"
+            role="Manager",
+            site="TWT Alberton"
         )
         db.session.add(manager)
     
