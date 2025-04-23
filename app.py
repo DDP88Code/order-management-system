@@ -608,6 +608,10 @@ Tiger Wheel & Tyre Team"""
 def health_check():
     return "OK", 200
 
+@app.route("/healthz")
+def healthz_check():
+    return "OK", 200
+
 def setup_users():
     # Only create default users if they don't exist
     admin = User.query.filter_by(username="Admin").first()
