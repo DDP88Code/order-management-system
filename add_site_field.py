@@ -1,49 +1,94 @@
 from app import db, User, Order
+import os
 
 def migrate():
     # Add site column to User table if it doesn't exist
     with db.engine.connect() as conn:
-        # Check if site column exists in User table
-        result = conn.execute("""
-            SELECT COUNT(*) 
-            FROM pragma_table_info('user') 
-            WHERE name='site'
-        """)
-        if result.scalar() == 0:
-            conn.execute("ALTER TABLE user ADD COLUMN site VARCHAR(100)")
-            print("Added site column to User table")
+        # Check if we're using PostgreSQL
+        is_postgres = 'postgresql' in str(db.engine.url)
         
-        # Check if site column exists in Order table
-        result = conn.execute("""
-            SELECT COUNT(*) 
-            FROM pragma_table_info('order') 
-            WHERE name='site'
-        """)
-        if result.scalar() == 0:
-            conn.execute("ALTER TABLE order ADD COLUMN site VARCHAR(100)")
-            print("Added site column to Order table")
+        if is_postgres:
+            # PostgreSQL syntax
+            # Check if site column exists in User table
+            result = conn.execute("""
+                SELECT COUNT(*) 
+                FROM information_schema.columns 
+                WHERE table_name = 'user' 
+                AND column_name = 'site'
+            """)
+            if result.scalar() == 0:
+                conn.execute('ALTER TABLE "user" ADD COLUMN site VARCHAR(100)')
+                print("Added site column to User table")
+            
+            # Check if site column exists in Order table
+            result = conn.execute("""
+                SELECT COUNT(*) 
+                FROM information_schema.columns 
+                WHERE table_name = 'order' 
+                AND column_name = 'site'
+            """)
+            if result.scalar() == 0:
+                conn.execute('ALTER TABLE "order" ADD COLUMN site VARCHAR(100)')
+                print("Added site column to Order table")
+            
+            # Update existing records
+            conn.execute("""
+                UPDATE "user" 
+                SET site = 'TWT Alberton' 
+                WHERE site IS NULL
+            """)
+            print("Updated existing User records with default site")
+            
+            conn.execute("""
+                UPDATE "order" o
+                SET site = (
+                    SELECT u.site 
+                    FROM "user" u 
+                    WHERE u.username = o.submitter
+                )
+                WHERE o.site IS NULL
+            """)
+        else:
+            # SQLite syntax
+            # Check if site column exists in User table
+            result = conn.execute("""
+                SELECT COUNT(*) 
+                FROM pragma_table_info('user') 
+                WHERE name='site'
+            """)
+            if result.scalar() == 0:
+                conn.execute("ALTER TABLE user ADD COLUMN site VARCHAR(100)")
+                print("Added site column to User table")
+            
+            # Check if site column exists in Order table
+            result = conn.execute("""
+                SELECT COUNT(*) 
+                FROM pragma_table_info('order') 
+                WHERE name='site'
+            """)
+            if result.scalar() == 0:
+                conn.execute("ALTER TABLE order ADD COLUMN site VARCHAR(100)")
+                print("Added site column to Order table")
+            
+            # Update existing records
+            conn.execute("""
+                UPDATE user 
+                SET site = 'TWT Alberton' 
+                WHERE site IS NULL
+            """)
+            print("Updated existing User records with default site")
+            
+            conn.execute("""
+                UPDATE "order" o
+                SET site = (
+                    SELECT u.site 
+                    FROM user u 
+                    WHERE u.username = o.submitter
+                )
+                WHERE o.site IS NULL
+            """)
         
-        # Update existing records
-        # For User table, set site based on username (email)
-        conn.execute("""
-            UPDATE user 
-            SET site = 'TWT Alberton' 
-            WHERE site IS NULL
-        """)
-        print("Updated existing User records with default site")
-        
-        # For Order table, set site based on submitter
-        conn.execute("""
-            UPDATE "order" o
-            SET site = (
-                SELECT u.site 
-                FROM user u 
-                WHERE u.username = o.submitter
-            )
-            WHERE o.site IS NULL
-        """)
         print("Updated existing Order records with site from submitter")
-        
         db.session.commit()
         print("Migration completed successfully")
 

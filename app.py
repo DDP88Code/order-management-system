@@ -48,6 +48,8 @@ login_manager.login_view = "login"
 # Database Models 
 ######################################## 
 class User(db.Model, UserMixin): 
+    __tablename__ = 'user'
+    __table_args__ = {'quote': True}  # This will properly quote the table name
     id = db.Column(db.Integer, primary_key=True) 
     username = db.Column(db.String(50), unique=True, nullable=False)  # Auto-populated from selected Site. 
     email = db.Column(db.String(120), nullable=False) 
@@ -58,6 +60,8 @@ class User(db.Model, UserMixin):
         return f"<User {self.username} - {self.role}>" 
 
 class Order(db.Model): 
+    __tablename__ = 'order'
+    __table_args__ = {'quote': True}  # This will properly quote the table name
     id = db.Column(db.Integer, primary_key=True) 
     supplier = db.Column(db.String(100), nullable=False) 
     description = db.Column(db.String(500), nullable=False) 
