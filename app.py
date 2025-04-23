@@ -78,22 +78,61 @@ class Order(db.Model):
 ######################################## 
 def send_email_via_outlook(recipient, subject, body, sender=None): 
     try: 
-        import pythoncom 
-        pythoncom.CoInitialize() 
-        import win32com.client as win32 
-        outlook = win32.Dispatch('Outlook.Application') 
-        mail = outlook.CreateItem(0)  # 0: Outlook mail item. 
-        mail.To = recipient 
-        mail.Subject = subject 
-        mail.Body = body 
-        if sender and sender.lower() != recipient.lower(): 
-            mail.SentOnBehalfOfName = sender 
-        print(f"Attempting to send email to {recipient} with subject '{subject}'...") 
-        mail.Send() 
-        print(f"Email successfully sent to {recipient} with subject '{subject}'") 
-        pythoncom.CoUninitialize() 
+        # For production (Render), use environment variables for email configuration
+        if os.getenv('RENDER'):
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            
+            msg = MIMEMultipart()
+            msg['From'] = os.getenv('EMAIL_USER', sender or 'noreply@twt.to')
+            msg['To'] = recipient
+            msg['Subject'] = subject
+            
+            msg.attach(MIMEText(body, 'plain'))
+            
+            server = smtplib.SMTP(os.getenv('SMTP_SERVER', 'smtp.office365.com'), int(os.getenv('SMTP_PORT', '587')))
+            server.starttls()
+            server.login(os.getenv('EMAIL_USER'), os.getenv('EMAIL_PASSWORD'))
+            server.send_message(msg)
+            server.quit()
+        else:
+            # Local development using Outlook - only import Windows-specific modules when needed
+            try:
+                import pythoncom 
+                import win32com.client as win32 
+                pythoncom.CoInitialize() 
+                outlook = win32.Dispatch('Outlook.Application') 
+                mail = outlook.CreateItem(0)
+                mail.To = recipient 
+                mail.Subject = subject 
+                mail.Body = body 
+                if sender and sender.lower() != recipient.lower(): 
+                    mail.SentOnBehalfOfName = sender 
+                mail.Send()
+                pythoncom.CoUninitialize()
+            except ImportError:
+                print("Warning: pywin32 not installed. Using SMTP fallback for local development.")
+                # Fallback to SMTP even in local development if pywin32 is not available
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+                
+                msg = MIMEMultipart()
+                msg['From'] = sender or 'noreply@twt.to'
+                msg['To'] = recipient
+                msg['Subject'] = subject
+                msg.attach(MIMEText(body, 'plain'))
+                
+                server = smtplib.SMTP('smtp.office365.com', 587)
+                server.starttls()
+                server.login(os.getenv('EMAIL_USER'), os.getenv('EMAIL_PASSWORD'))
+                server.send_message(msg)
+                server.quit()
+            
+        print(f"Email successfully sent to {recipient} with subject '{subject}'")
     except Exception as e: 
-        print("Error sending email:", e) 
+        print("Error sending email:", e)
 
 ######################################## 
 # User Loader for Flask-Login 
@@ -472,7 +511,7 @@ def print_order(order_id):
     order = Order.query.get_or_404(order_id) 
     return render_template("print_order.html", order=order) 
 
-# Send to Supplier Route using Headless Chromium to generate PDF
+# Send to Supplier Route using Headless Chrome to generate PDF
 @app.route("/send_to_supplier/<int:order_id>")
 @login_required
 def send_to_supplier(order_id):
@@ -490,15 +529,20 @@ def send_to_supplier(order_id):
     temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     temp_pdf.close()
     
-    # Path to Chrome executable - update this path according to your system
-    chrome_executable_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-    
     try:
+        if os.getenv('RENDER'):
+            # On Render, use Chrome from the system path
+            chrome_executable_path = "google-chrome"
+        else:
+            # Local development
+            chrome_executable_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+        
         # Build the command to run headless Chrome
         command = [
             chrome_executable_path,
             "--headless",
             "--disable-gpu",
+            "--no-sandbox",  # Required for running Chrome in Docker/Render
             f"--print-to-pdf={temp_pdf.name}",
             "file:///" + temp_html.name
         ]
@@ -560,20 +604,47 @@ Tiger Wheel & Tyre Team"""
     
     return redirect(url_for("print_order", order_id=order_id))
 
+@app.route("/health")
+def health_check():
+    return "OK", 200
+
 def setup_users():
+    # Only create default users if they don't exist
     admin = User.query.filter_by(username="Admin").first()
     if not admin:
-        admin = User(username="Admin", email="deand@twt.to", password="Admin", role="Admin")
+        admin = User(
+            username="Admin",
+            email=os.getenv('ADMIN_EMAIL', 'admin@twt.to'),
+            password=os.getenv('ADMIN_PASSWORD', 'Admin'),
+            role="Admin"
+        )
         db.session.add(admin)
+    
     manager = User.query.filter_by(username="Manager").first()
     if not manager:
-        # Use a unique email address for the Manager.
-        manager = User(username="Manager", email="manager@twt.to", password="Manager", role="Manager")
+        manager = User(
+            username="Manager",
+            email=os.getenv('MANAGER_EMAIL', 'manager@twt.to'),
+            password=os.getenv('MANAGER_PASSWORD', 'Manager'),
+            role="Manager"
+        )
         db.session.add(manager)
-    db.session.commit()
+    
+    try:
+        db.session.commit()
+    except Exception as e:
+        print(f"Error setting up users: {e}")
+        db.session.rollback()
 
-if __name__ == "__main__":
+# Initialize database and create tables
+def init_db():
     with app.app_context():
         db.create_all()
         setup_users()
+
+if __name__ == "__main__":
+    init_db()
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+else:
+    # This will run when the app is started by Gunicorn on Render
+    init_db()
