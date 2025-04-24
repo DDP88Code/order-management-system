@@ -71,7 +71,7 @@
 
     <div style="background-color: #f8f8f8; padding: 1rem; border-radius: 4px;">
       <p><strong style="color: var(--tiger-black);">Total Excl:</strong> R{{ "%.2f"|format(ns.total) }}</p>
-      {% set vat = ns.total * 0.155 %}
+      {% set vat = ns.total * 0.15 %}
       <p><strong style="color: var(--tiger-black);">VAT:</strong> R{{ "%.2f"|format(vat) }}</p>
       {% set total_incl = ns.total + vat %}
       <p><strong style="color: var(--tiger-black);">Total Amount Incl.:</strong> R{{ "%.2f"|format(total_incl) }}</p>

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash 
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy 
 from flask_login import ( 
     LoginManager, 
@@ -82,62 +82,79 @@ class Order(db.Model):
 ######################################## 
 # Outlook Email Helper Using COM 
 ######################################## 
-def send_email_via_outlook(recipient, subject, body, sender=None): 
-    try: 
-        # Try to use local Outlook first (for notifications)
-        try:
-            import pythoncom 
-            import win32com.client as win32 
-            pythoncom.CoInitialize() 
-            outlook = win32.Dispatch('Outlook.Application') 
-            mail = outlook.CreateItem(0)
-            mail.To = recipient 
-            mail.Subject = subject 
-            mail.Body = body 
-            if sender and sender.lower() != recipient.lower(): 
-                mail.SentOnBehalfOfName = sender 
-            mail.Send()
-            pythoncom.CoUninitialize()
-            print(f"Email successfully sent to {recipient} via Outlook")
-            return True
-        except ImportError:
-            print("Warning: pywin32 not installed. Falling back to SMTP.")
-        except Exception as e:
-            print(f"Error using Outlook: {str(e)}. Falling back to SMTP.")
+def send_email_via_outlook(recipient, subject, body, sender=None):
+    """
+    Send an email using local Outlook application or SMTP as fallback.
+    """
+    try:
+        # Initialize COM for Outlook
+        import pythoncom
+        pythoncom.CoInitialize()
+        import win32com.client as win32
         
-        # Fallback to SMTP if Outlook fails or is not available
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
+        # Create Outlook application object
+        outlook = win32.Dispatch("Outlook.Application")
         
-        msg = MIMEMultipart()
-        msg['From'] = os.getenv('EMAIL_USER', sender or 'noreply@twt.to')
-        msg['To'] = recipient
-        msg['Subject'] = subject
+        # Create a new mail item
+        mail = outlook.CreateItem(0)  # 0: olMailItem
         
-        msg.attach(MIMEText(body, 'plain'))
+        # Set email properties
+        mail.Subject = subject
+        mail.Body = body
+        mail.To = recipient
         
-        # Get SMTP settings from environment variables
-        smtp_server = os.getenv('SMTP_SERVER', 'smtp.office365.com')
-        smtp_port = int(os.getenv('SMTP_PORT', '587'))
-        email_user = os.getenv('EMAIL_USER')
-        email_password = os.getenv('EMAIL_PASSWORD')
+        if sender:
+            mail.SentOnBehalfOfName = sender
         
-        if not all([email_user, email_password]):
-            print("Error: Email credentials not properly configured")
-            return False
+        # Display the email for review (but don't send automatically)
+        mail.Display(False)
         
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(email_user, email_password)
-        server.send_message(msg)
-        server.quit()
-        print(f"Email successfully sent to {recipient} via SMTP")
+        # Clean up
+        pythoncom.CoUninitialize()
+        
+        print(f"Email prepared in Outlook for {recipient}")
         return True
+        
+    except Exception as e:
+        print(f"Error using Outlook: {str(e)}")
+        print("Falling back to SMTP...")
+        
+        try:
+            # Fall back to SMTP if Outlook fails
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
             
-    except Exception as e: 
-        print(f"Error sending email: {str(e)}")
-        return False
+            # Get SMTP settings from environment variables
+            smtp_server = os.getenv('SMTP_SERVER', 'smtp.office365.com')
+            smtp_port = int(os.getenv('SMTP_PORT', '587'))
+            email_user = os.getenv('EMAIL_USER')
+            email_password = os.getenv('EMAIL_PASSWORD')
+            
+            if not all([email_user, email_password]):
+                raise ValueError("Email credentials not configured")
+            
+            # Create message
+            msg = MIMEMultipart()
+            msg['From'] = sender if sender else email_user
+            msg['To'] = recipient
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'plain'))
+            
+            # Send email via SMTP
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
+                server.starttls()
+                server.login(email_user, email_password)
+                server.send_message(msg)
+            
+            print(f"Email sent via SMTP to {recipient}")
+            return True
+            
+        except Exception as smtp_error:
+            print(f"SMTP Error: {str(smtp_error)}")
+            return False
+            
+    return False
 
 ######################################## 
 # User Loader for Flask-Login 
@@ -529,125 +546,90 @@ def print_order(order_id):
 @app.route("/send_to_supplier/<int:order_id>")
 @login_required
 def send_to_supplier(order_id):
-    order = Order.query.get_or_404(order_id)
-    
+    """
+    Generate PDF for order and prepare email to supplier.
+    """
     try:
-        # Render the print_order template to HTML string
-        rendered = render_template("print_order.html", order=order)
+        # Get order details
+        order = Order.query.get_or_404(order_id)
         
-        # Write the HTML to a temporary file
-        temp_html = tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode="w", encoding="utf-8")
-        temp_html.write(rendered)
-        temp_html.close()
-        
-        # Create a temporary file for the PDF
-        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        temp_pdf.close()
-        
-        if os.getenv('RENDER'):
-            # On Render, use Chrome from the system path
+        # Create temporary files
+        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as html_file, \
+             tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as pdf_file:
+            
+            # Render order template to HTML
+            html_content = render_template('print_order.html', order=order)
+            html_file.write(html_content.encode('utf-8'))
+            html_file.flush()
+            
+            # Find Chrome executable
             chrome_paths = [
-                "/usr/bin/google-chrome",
-                "/usr/bin/google-chrome-stable",
-                "/usr/bin/chromium-browser",
-                "/usr/bin/chromium"
+                # Windows paths
+                r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+                r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+                os.path.expandvars(r'%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe'),
+                # Linux paths
+                '/usr/bin/google-chrome',
+                '/usr/bin/google-chrome-stable',
+                '/usr/bin/chromium',
+                '/usr/bin/chromium-browser'
             ]
             
-            chrome_executable_path = None
+            chrome_exe = None
             for path in chrome_paths:
                 if os.path.exists(path):
-                    chrome_executable_path = path
+                    chrome_exe = path
                     break
+                    
+            if not chrome_exe:
+                raise FileNotFoundError("Chrome executable not found. Please ensure Chrome is installed.")
             
-            if not chrome_executable_path:
-                raise Exception("Chrome executable not found on the system")
-        else:
-            # Local development - try different Chrome paths
-            chrome_paths = [
-                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-                os.path.expanduser("~") + r"\AppData\Local\Google\Chrome\Application\chrome.exe"
+            # Generate PDF using Chrome
+            cmd = [
+                chrome_exe,
+                '--headless',
+                '--disable-gpu',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                f'--print-to-pdf={pdf_file.name}',
+                f'file:///{html_file.name}'
             ]
             
-            chrome_executable_path = None
-            for path in chrome_paths:
-                if os.path.exists(path):
-                    chrome_executable_path = path
-                    break
+            subprocess.run(cmd, check=True, capture_output=True)
             
-            if not chrome_executable_path:
-                raise Exception("Chrome executable not found on the system")
-        
-        # Build the command to run headless Chrome
-        command = [
-            chrome_executable_path,
-            "--headless",
-            "--disable-gpu",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            f"--print-to-pdf={temp_pdf.name}",
-            "file:///" + temp_html.name.replace("\\", "/")
-        ]
-        
-        # Generate PDF using headless Chrome
-        subprocess.run(command, check=True)
-        
-        # Initialize COM for Outlook
-        import pythoncom
-        pythoncom.CoInitialize()
-        import win32com.client as win32
-        
-        # Create and display Outlook email with PDF attachment
-        outlook = win32.Dispatch("Outlook.Application")
-        mail = outlook.CreateItem(0)  # 0: Outlook mail item
-        mail.Subject = f"Order #{order.id} from Tiger Wheel & Tyre {order.submitter}"
-        
-        # Create professional email body
-        mail.Body = f"""Dear Supplier,
-
-Please find attached the order details from Tiger Wheel & Tyre {order.submitter}.
+            # Prepare email content
+            subject = f'Order #{order.id} from {order.submitter_name}'
+            body = f"""Please find attached the order details for Order #{order.id}.
 
 Order Details:
--------------
-Order ID: {order.id}
-Site: {order.submitter}
-Status: {order.status.upper()}
-Created: {order.created_at.strftime('%Y-%m-%d %H:%M:%S')}
+Submitted by: {order.submitter_name}
+Date: {order.created_at.strftime('%Y-%m-%d %H:%M:%S')}
+Status: {order.status}
 
-Total Amount (Excl. VAT): R{order.amount / 1.15:.2f}
-VAT (15%): R{order.amount - (order.amount / 1.15):.2f}
-Total Amount (Incl. VAT): R{order.amount:.2f}
-
-Submitted by: {order.submitter_emp_name} ({order.submitter_emp_number})
-{f"Approved by: {order.approver_emp_name} ({order.approver_emp_number})" if order.status == "approved" else ""}
+Please process this order according to the specifications in the attached PDF.
 
 Best regards,
-Tiger Wheel & Tyre Team"""
-
-        # Attach the PDF
-        mail.Attachments.Add(temp_pdf.name)
-        
-        # Display the email (but don't send it automatically)
-        mail.Display(False)
-        
-        pythoncom.CoUninitialize()
-        flash(f"Order #{order.id} has been prepared for sending to supplier. Please review and send the email.", "success")
-        
+{current_user.name}"""
+            
+            # Send email with PDF attachment
+            send_email_via_outlook(
+                recipient=order.supplier_email,
+                subject=subject,
+                body=body,
+                sender=current_user.email
+            )
+            
+            # Clean up temporary files
+            try:
+                os.unlink(html_file.name)
+                os.unlink(pdf_file.name)
+            except Exception as e:
+                print(f"Warning: Could not delete temporary files: {str(e)}")
+            
+            return jsonify({'message': 'Email prepared with order details'}), 200
+            
     except Exception as e:
-        flash(f"Error preparing supplier email: {str(e)}", "error")
-        print(f"Detailed error: {str(e)}")
-        
-    finally:
-        # Clean up temporary files
-        try:
-            if 'temp_html' in locals():
-                os.unlink(temp_html.name)
-            if 'temp_pdf' in locals():
-                os.unlink(temp_pdf.name)
-        except Exception as e:
-            print(f"Error cleaning up temporary files: {str(e)}")
-    
-    return redirect(url_for("print_order", order_id=order_id))
+        return jsonify({'error': str(e)}), 500
 
 @app.route("/health")
 def health_check():
