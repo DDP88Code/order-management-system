@@ -84,8 +84,14 @@ class Order(db.Model):
 ######################################## 
 def send_email_via_outlook(recipient, subject, body, sender=None):
     """
-    Send an email using local Outlook application or SMTP as fallback.
+    Send an email using SMTP in production or Outlook in development.
+    Falls back to SMTP if Outlook is not available in development.
     """
+    # In production, use SMTP directly
+    if os.getenv('RENDER'):
+        return send_via_smtp(recipient, subject, body, sender)
+        
+    # In development, try Outlook first
     try:
         # Initialize COM for Outlook
         import pythoncom
@@ -118,43 +124,48 @@ def send_email_via_outlook(recipient, subject, body, sender=None):
     except Exception as e:
         print(f"Error using Outlook: {str(e)}")
         print("Falling back to SMTP...")
+        return send_via_smtp(recipient, subject, body, sender)
+
+def send_via_smtp(recipient, subject, body, sender=None):
+    """
+    Send an email using SMTP.
+    """
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
         
-        try:
-            # Fall back to SMTP if Outlook fails
-            import smtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
-            
-            # Get SMTP settings from environment variables
-            smtp_server = os.getenv('SMTP_SERVER', 'smtp.office365.com')
-            smtp_port = int(os.getenv('SMTP_PORT', '587'))
-            email_user = os.getenv('EMAIL_USER')
-            email_password = os.getenv('EMAIL_PASSWORD')
-            
-            if not all([email_user, email_password]):
-                raise ValueError("Email credentials not configured")
-            
-            # Create message
-            msg = MIMEMultipart()
-            msg['From'] = sender if sender else email_user
-            msg['To'] = recipient
-            msg['Subject'] = subject
-            msg.attach(MIMEText(body, 'plain'))
-            
-            # Send email via SMTP
-            with smtplib.SMTP(smtp_server, smtp_port) as server:
-                server.starttls()
-                server.login(email_user, email_password)
-                server.send_message(msg)
-            
-            print(f"Email sent via SMTP to {recipient}")
-            return True
-            
-        except Exception as smtp_error:
-            print(f"SMTP Error: {str(smtp_error)}")
-            return False
-            
-    return False
+        # Get SMTP settings from environment variables
+        smtp_server = os.getenv('SMTP_SERVER', 'smtp.office365.com')
+        smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        email_user = os.getenv('EMAIL_USER')
+        email_password = os.getenv('EMAIL_PASSWORD')
+        
+        if not all([email_user, email_password]):
+            raise ValueError("Email credentials not configured. Please set EMAIL_USER and EMAIL_PASSWORD environment variables.")
+        
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = sender if sender else email_user
+        msg['To'] = recipient
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Send email via SMTP
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(email_user, email_password)
+            server.send_message(msg)
+        
+        print(f"Email sent via SMTP to {recipient}")
+        return True
+        
+    except Exception as smtp_error:
+        error_msg = str(smtp_error)
+        print(f"SMTP Error: {error_msg}")
+        if "Email credentials not configured" in error_msg:
+            print("Please configure EMAIL_USER and EMAIL_PASSWORD environment variables")
+        return False
 
 ######################################## 
 # User Loader for Flask-Login 
@@ -675,42 +686,50 @@ def forgot_password():
     if request.method == "POST":
         email = request.form.get("email")
         site = request.form.get("site")
-        emp_number = request.form.get("emp_number")
+        new_password = request.form.get("new_password")
         
         # Find user with matching email and site
         user = User.query.filter_by(email=email, site=site).first()
         
-        if user and user.submitter_emp_number == emp_number:
-            # Generate a temporary password
-            import secrets
-            import string
-            alphabet = string.ascii_letters + string.digits
-            temp_password = ''.join(secrets.choice(alphabet) for i in range(12))
+        if user:
+            # Validate password
+            password_errors = []
+            if len(new_password) < 8:
+                password_errors.append("at least 8 characters")
+            if not re.search(r'[A-Z]', new_password):
+                password_errors.append("one uppercase letter")
+            if not re.search(r'\d', new_password):
+                password_errors.append("one number")
+            if not re.search(r'[\W_]', new_password):
+                password_errors.append("one special character")
+                
+            if password_errors:
+                flash(f"Password must contain {', '.join(password_errors)}.", "error")
+                return render_template("forgot_password.html", sites=sites)
             
             # Update user's password
-            user.password = temp_password
+            user.password = new_password
             db.session.commit()
             
-            # Send email with temporary password
-            subject = "Password Reset - Order Management System"
+            # Send confirmation email
+            subject = "Password Reset Confirmation - Order Management System"
             body = f"""Dear {user.username},
 
-Your password has been reset. Here are your new login credentials:
+Your password has been successfully reset.
 
-Username: {user.email}
-Temporary Password: {temp_password}
-
-Please log in and change your password immediately.
+If you did not request this change, please contact your system administrator immediately.
 
 Best regards,
 Order Management System"""
             
             if send_email_via_outlook(user.email, subject, body):
-                flash("A temporary password has been sent to your email address.", "success")
+                flash("Your password has been successfully reset. You can now log in with your new password.", "success")
             else:
-                flash("Error sending email. Please contact your system administrator.", "error")
+                flash("Password reset successful, but there was an error sending the confirmation email.", "warning")
+                
+            return redirect(url_for("login"))
         else:
-            flash("No matching user found with the provided information.", "error")
+            flash("No matching user found with the provided email and site.", "error")
             
         return redirect(url_for("login"))
         
