@@ -171,42 +171,52 @@ def send_via_smtp(recipient, subject, body, sender=None):
 
 def send_email_via_outlook(recipient, subject, body, sender=None):
     """
-    Send an email using local Outlook in development or direct SMTP in production.
+    Send an email using the local Outlook application.
+    Displays the email for manual review and sending.
+    
+    Args:
+        recipient (str): Email address of the recipient
+        subject (str): Email subject
+        body (str): Email body content
+        sender (str, optional): Sender's email address
+        
+    Returns:
+        bool: True if email was prepared successfully, False otherwise
     """
     try:
-        # Try Outlook COM first if not in production
-        if not os.getenv('RENDER'):
-            try:
-                import win32com.client
-                outlook = win32com.client.Dispatch("Outlook.Application")
-                mail = outlook.CreateItem(0)
-                mail.Subject = subject
-                mail.Body = body
-                mail.To = recipient
-                if sender:
-                    mail.SentOnBehalfOfName = sender
-                
-                # Try to send directly
-                try:
-                    mail.Send()
-                    print(f"Email sent directly via Outlook to {recipient}")
-                    return True
-                except Exception as send_error:
-                    print(f"Direct send failed, displaying email: {str(send_error)}")
-                    # If direct send fails, display the email
-                    mail.Display(False)
-                    print(f"Email displayed in Outlook for {recipient}")
-                    return True
-                    
-            except Exception as e:
-                print(f"Error using Outlook COM: {str(e)}")
-                print("Falling back to SMTP...")
-                
-        # If Outlook fails or we're in production, try SMTP
-        return send_via_smtp(recipient, subject, body, sender)
-        
+        # Try to use the local Outlook application
+        try:
+            import win32com.client
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)  # 0 = olMailItem
+            
+            # Set email properties
+            mail.Subject = subject
+            mail.Body = body
+            mail.To = recipient
+            if sender:
+                mail.SentOnBehalfOfName = sender
+            
+            # Display the email for review instead of sending automatically
+            mail.Display()
+            print(f"Email displayed in Outlook for {recipient}")
+            return True
+            
+        except ImportError:
+            # If win32com is not available, show a message about using Outlook directly
+            print("Please use your local Outlook application to send this email:")
+            print(f"To: {recipient}")
+            print(f"Subject: {subject}")
+            print("Body:")
+            print(body)
+            return True
+            
+        except Exception as e:
+            print(f"Error preparing email in Outlook: {str(e)}")
+            return False
+            
     except Exception as e:
-        print(f"Error sending email: {str(e)}")
+        print(f"Unexpected error in send_email_via_outlook: {str(e)}")
         return False
 
 ######################################## 
