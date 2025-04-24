@@ -672,13 +672,21 @@ def init_db():
             
             # Setup initial users if needed
             setup_users()
+            print("Database initialization completed successfully")
             
         except Exception as e:
             print(f"Error initializing database: {str(e)}")
-            raise
+            # Don't raise the error, just log it
+            # This allows the application to start even if there are database issues
+            pass
 
 # Initialize the database when the application starts
-init_db()
+if __name__ == "__main__":
+    init_db()
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+else:
+    # This will run when the app is started by Gunicorn on Render
+    init_db()
 
 @app.route("/forgot_password", methods=["GET", "POST"])
 def forgot_password():
@@ -731,9 +739,3 @@ Order Management System"""
         # ... existing sites ...
     }
     return render_template("forgot_password.html", sites=sites)
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
-else:
-    # This will run when the app is started by Gunicorn on Render
-    init_db()
