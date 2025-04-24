@@ -82,79 +82,38 @@ class Order(db.Model):
 ######################################## 
 # Outlook Email Helper Using COM 
 ######################################## 
-def send_email_via_outlook(recipient, subject, body, sender=None):
-    """
-    Send an email using SMTP in production or Outlook in development.
-    Falls back to SMTP if Outlook is not available in development.
-    """
-    # In production, use SMTP directly
-    if os.getenv('RENDER'):
-        return send_via_smtp(recipient, subject, body, sender)
-        
-    # In development, try Outlook first
-    try:
-        # Initialize COM for Outlook
-        import pythoncom
-        pythoncom.CoInitialize()
-        import win32com.client as win32
-        
-        # Create Outlook application object
-        outlook = win32.Dispatch("Outlook.Application")
-        
-        # Create a new mail item
-        mail = outlook.CreateItem(0)  # 0: olMailItem
-        
-        # Set email properties
-        mail.Subject = subject
-        mail.Body = body
-        mail.To = recipient
-        
-        if sender:
-            mail.SentOnBehalfOfName = sender
-        
-        # Display the email for review (but don't send automatically)
-        mail.Display(False)
-        
-        # Clean up
-        pythoncom.CoUninitialize()
-        
-        print(f"Email prepared in Outlook for {recipient}")
-        return True
-        
-    except Exception as e:
-        print(f"Error using Outlook: {str(e)}")
-        print("Falling back to SMTP...")
-        return send_via_smtp(recipient, subject, body, sender)
-
 def send_via_smtp(recipient, subject, body, sender=None):
     """
-    Send an email using SMTP.
+    Send an email using SMTP with the current user's credentials.
     """
     try:
         import smtplib
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
         
-        # Get SMTP settings from environment variables
-        smtp_server = os.getenv('SMTP_SERVER', 'smtp.office365.com')
-        smtp_port = int(os.getenv('SMTP_PORT', '587'))
-        email_user = os.getenv('EMAIL_USER')
-        email_password = os.getenv('EMAIL_PASSWORD')
-        
-        if not all([email_user, email_password]):
-            raise ValueError("Email credentials not configured. Please set EMAIL_USER and EMAIL_PASSWORD environment variables.")
-        
+        # Use the current user's email as the sender
+        if not sender and current_user:
+            sender = current_user.email
+            
+        if not sender:
+            raise ValueError("No sender email address available")
+            
         # Create message
         msg = MIMEMultipart()
-        msg['From'] = sender if sender else email_user
+        msg['From'] = sender
         msg['To'] = recipient
         msg['Subject'] = subject
         msg.attach(MIMEText(body, 'plain'))
         
+        # Let Outlook/Exchange handle the authentication
+        # This will use the user's local Outlook configuration
+        smtp_server = 'smtp-mail.outlook.com'
+        smtp_port = 587
+        
         # Send email via SMTP
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
-            server.login(email_user, email_password)
+            # No login required - will use local Outlook configuration
             server.send_message(msg)
         
         print(f"Email sent via SMTP to {recipient}")
@@ -163,8 +122,55 @@ def send_via_smtp(recipient, subject, body, sender=None):
     except Exception as smtp_error:
         error_msg = str(smtp_error)
         print(f"SMTP Error: {error_msg}")
-        if "Email credentials not configured" in error_msg:
-            print("Please configure EMAIL_USER and EMAIL_PASSWORD environment variables")
+        print("Note: Make sure you are logged into Outlook on your computer")
+        return False
+
+def send_email_via_outlook(recipient, subject, body, sender=None):
+    """
+    Send an email using local Outlook in development or direct SMTP in production.
+    """
+    try:
+        # In development, try Outlook first
+        if not os.getenv('RENDER'):
+            # Initialize COM for Outlook
+            import pythoncom
+            pythoncom.CoInitialize()
+            import win32com.client as win32
+            
+            try:
+                # Create Outlook application object
+                outlook = win32.Dispatch("Outlook.Application")
+                
+                # Create a new mail item
+                mail = outlook.CreateItem(0)  # 0: olMailItem
+                
+                # Set email properties
+                mail.Subject = subject
+                mail.Body = body
+                mail.To = recipient
+                
+                if sender:
+                    mail.SentOnBehalfOfName = sender
+                
+                # Display the email for review (but don't send automatically)
+                mail.Display(False)
+                
+                # Clean up
+                pythoncom.CoUninitialize()
+                
+                print(f"Email prepared in Outlook for {recipient}")
+                return True
+                
+            except Exception as e:
+                print(f"Error using Outlook: {str(e)}")
+                print("Falling back to direct SMTP...")
+                return send_via_smtp(recipient, subject, body, sender)
+                
+        # In production or if Outlook fails, use direct SMTP
+        return send_via_smtp(recipient, subject, body, sender)
+        
+    except Exception as e:
+        print(f"Error sending email: {str(e)}")
         return False
 
 ######################################## 
