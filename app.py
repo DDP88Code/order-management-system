@@ -105,20 +105,64 @@ def send_via_smtp(recipient, subject, body, sender=None):
         msg['Subject'] = subject
         msg.attach(MIMEText(body, 'plain'))
         
-        # Let Outlook/Exchange handle the authentication
-        # This will use the user's local Outlook configuration
-        smtp_server = 'smtp-mail.outlook.com'
-        smtp_port = 587
+        # Try different SMTP configurations
+        smtp_configs = [
+            {
+                'server': 'smtp-mail.outlook.com',
+                'port': 587,
+                'use_tls': True
+            },
+            {
+                'server': 'outlook.office365.com',
+                'port': 587,
+                'use_tls': True
+            }
+        ]
         
-        # Send email via SMTP
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            # No login required - will use local Outlook configuration
-            server.send_message(msg)
-        
-        print(f"Email sent via SMTP to {recipient}")
-        return True
-        
+        last_error = None
+        for config in smtp_configs:
+            try:
+                print(f"Attempting to send via {config['server']}...")
+                server = smtplib.SMTP(config['server'], config['port'])
+                if config['use_tls']:
+                    server.starttls()
+                
+                # Try to send without authentication first
+                try:
+                    server.send_message(msg)
+                    print(f"Email sent successfully via {config['server']}")
+                    return True
+                except smtplib.SMTPException as e:
+                    print(f"Direct send failed: {str(e)}")
+                    # If direct send fails, try to use the default Windows credentials
+                    try:
+                        import win32com.client
+                        outlook = win32com.client.Dispatch("Outlook.Application")
+                        mail = outlook.CreateItem(0)
+                        mail.Subject = subject
+                        mail.Body = body
+                        mail.To = recipient
+                        mail.Send()
+                        print("Email sent via Outlook COM")
+                        return True
+                    except Exception as com_error:
+                        print(f"Outlook COM error: {str(com_error)}")
+                        raise
+                finally:
+                    try:
+                        server.quit()
+                    except:
+                        pass
+                        
+            except Exception as e:
+                last_error = str(e)
+                print(f"Failed with {config['server']}: {last_error}")
+                continue
+                
+        if last_error:
+            print(f"All SMTP configurations failed. Last error: {last_error}")
+            return False
+            
     except Exception as smtp_error:
         error_msg = str(smtp_error)
         print(f"SMTP Error: {error_msg}")
@@ -130,43 +174,35 @@ def send_email_via_outlook(recipient, subject, body, sender=None):
     Send an email using local Outlook in development or direct SMTP in production.
     """
     try:
-        # In development, try Outlook first
+        # Try Outlook COM first if not in production
         if not os.getenv('RENDER'):
-            # Initialize COM for Outlook
-            import pythoncom
-            pythoncom.CoInitialize()
-            import win32com.client as win32
-            
             try:
-                # Create Outlook application object
-                outlook = win32.Dispatch("Outlook.Application")
-                
-                # Create a new mail item
-                mail = outlook.CreateItem(0)  # 0: olMailItem
-                
-                # Set email properties
+                import win32com.client
+                outlook = win32com.client.Dispatch("Outlook.Application")
+                mail = outlook.CreateItem(0)
                 mail.Subject = subject
                 mail.Body = body
                 mail.To = recipient
-                
                 if sender:
                     mail.SentOnBehalfOfName = sender
                 
-                # Display the email for review (but don't send automatically)
-                mail.Display(False)
-                
-                # Clean up
-                pythoncom.CoUninitialize()
-                
-                print(f"Email prepared in Outlook for {recipient}")
-                return True
-                
+                # Try to send directly
+                try:
+                    mail.Send()
+                    print(f"Email sent directly via Outlook to {recipient}")
+                    return True
+                except Exception as send_error:
+                    print(f"Direct send failed, displaying email: {str(send_error)}")
+                    # If direct send fails, display the email
+                    mail.Display(False)
+                    print(f"Email displayed in Outlook for {recipient}")
+                    return True
+                    
             except Exception as e:
-                print(f"Error using Outlook: {str(e)}")
-                print("Falling back to direct SMTP...")
-                return send_via_smtp(recipient, subject, body, sender)
+                print(f"Error using Outlook COM: {str(e)}")
+                print("Falling back to SMTP...")
                 
-        # In production or if Outlook fails, use direct SMTP
+        # If Outlook fails or we're in production, try SMTP
         return send_via_smtp(recipient, subject, body, sender)
         
     except Exception as e:
