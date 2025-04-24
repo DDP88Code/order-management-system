@@ -31,6 +31,7 @@ def migrate():
             if result.scalar() == 0:
                 conn.execute(text('ALTER TABLE "user" ADD COLUMN site VARCHAR(100)'))
                 print("Added site column to User table")
+                conn.commit()
             
             # Check if order table exists
             result = conn.execute(text("""
@@ -53,6 +54,7 @@ def migrate():
             if result.scalar() == 0:
                 conn.execute(text('ALTER TABLE "order" ADD COLUMN site VARCHAR(100)'))
                 print("Added site column to Order table")
+                conn.commit()
             
             # Update existing records
             conn.execute(text("""
@@ -61,6 +63,7 @@ def migrate():
                 WHERE site IS NULL
             """))
             print("Updated existing User records with default site")
+            conn.commit()
             
             conn.execute(text("""
                 UPDATE "order" o
@@ -71,6 +74,7 @@ def migrate():
                 )
                 WHERE o.site IS NULL
             """))
+            conn.commit()
         else:
             # SQLite syntax
             # First check if the user table exists
@@ -91,6 +95,7 @@ def migrate():
             if result.scalar() == 0:
                 conn.execute(text("ALTER TABLE user ADD COLUMN site VARCHAR(100)"))
                 print("Added site column to User table")
+                conn.commit()
             
             # Check if order table exists
             result = conn.execute(text("""
@@ -110,6 +115,7 @@ def migrate():
             if result.scalar() == 0:
                 conn.execute(text("ALTER TABLE order ADD COLUMN site VARCHAR(100)"))
                 print("Added site column to Order table")
+                conn.commit()
             
             # Update existing records
             conn.execute(text("""
@@ -118,6 +124,7 @@ def migrate():
                 WHERE site IS NULL
             """))
             print("Updated existing User records with default site")
+            conn.commit()
             
             conn.execute(text("""
                 UPDATE "order" o
@@ -128,9 +135,9 @@ def migrate():
                 )
                 WHERE o.site IS NULL
             """))
+            conn.commit()
         
         print("Updated existing Order records with site from submitter")
-        db.session.commit()
         print("Migration completed successfully")
 
 if __name__ == "__main__":

@@ -659,21 +659,33 @@ def setup_users():
 # Initialize database and create tables
 def init_db():
     with app.app_context():
-        # Create tables if they don't exist first
-        db.create_all()
-        
-        # Import and run the migration script
-        from add_site_field import migrate
         try:
-            migrate()
-            print("Migration completed successfully")
+            # Create tables if they don't exist first
+            db.create_all()
+            db.session.commit()
+            print("Database tables created successfully")
+            
+            # Import and run the migration script
+            from add_site_field import migrate
+            try:
+                migrate()
+                print("Migration completed successfully")
+            except Exception as e:
+                print(f"Error during migration: {e}")
+                # Continue with setup even if migration fails
+                # This allows the app to start with a fresh database if needed
+            
+            # Refresh the session to ensure all changes are reflected
+            db.session.remove()
+            db.session.begin()
+            
+            # Setup users after migration
+            setup_users()
+            print("Database initialization completed successfully")
         except Exception as e:
-            print(f"Error during migration: {e}")
-            # Continue with setup even if migration fails
-            # This allows the app to start with a fresh database if needed
-        
-        # Setup users after migration
-        setup_users()
+            print(f"Error during database initialization: {e}")
+            db.session.rollback()
+            raise
 
 if __name__ == "__main__":
     init_db()
