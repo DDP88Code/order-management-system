@@ -614,8 +614,8 @@ Site: {order.submitter}
 Status: {order.status.upper()}
 Created: {order.created_at.strftime('%Y-%m-%d %H:%M:%S')}
 
-Total Amount (Excl. VAT): R{order.amount / 1.155:.2f}
-VAT (15.5%): R{order.amount - (order.amount / 1.155):.2f}
+Total Amount (Excl. VAT): R{order.amount / 1.15:.2f}
+VAT (15%): R{order.amount - (order.amount / 1.15):.2f}
 Total Amount (Incl. VAT): R{order.amount:.2f}
 
 Submitted by: {order.submitter_emp_name} ({order.submitter_emp_number})
