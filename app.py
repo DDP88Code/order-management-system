@@ -658,34 +658,9 @@ def healthz_check():
     return "OK", 200
 
 def setup_users():
-    # Only create default users if they don't exist
-    admin = User.query.filter_by(username="Admin").first()
-    if not admin:
-        admin = User(
-            username="Admin",
-            email=os.getenv('ADMIN_EMAIL', 'admin@twt.to'),
-            password=os.getenv('ADMIN_PASSWORD', 'Admin'),
-            role="Admin",
-            site="TWT Alberton"
-        )
-        db.session.add(admin)
-    
-    manager = User.query.filter_by(username="Manager").first()
-    if not manager:
-        manager = User(
-            username="Manager",
-            email=os.getenv('MANAGER_EMAIL', 'manager@twt.to'),
-            password=os.getenv('MANAGER_PASSWORD', 'Manager'),
-            role="Manager",
-            site="TWT Alberton"
-        )
-        db.session.add(manager)
-    
-    try:
-        db.session.commit()
-    except Exception as e:
-        print(f"Error setting up users: {e}")
-        db.session.rollback()
+    # No longer creating default users
+    # Users should register through the registration page
+    pass
 
 # Initialize database and create tables
 def init_db():
