@@ -67,7 +67,7 @@
       <input type="number" id="total_excl" readonly value="0">
     </div>
     <div class="four wide field">
-      <label>VAT (15.5%)</label>
+      <label>VAT (15%)</label>
       <input type="number" id="vat" readonly value="0">
     </div>
     <div class="four wide field">
@@ -109,6 +109,7 @@
 
 {% block scripts %}
 <script>
+  // Version 2 - Updated VAT rate to 15%
   $(document).ready(function(){
 
     // Function to recalc one row's total and update summary.
@@ -125,7 +126,7 @@
       $('.item-total-cost').each(function(){
         totalExcl += parseFloat($(this).val()) || 0;
       });
-      var vat = totalExcl * 0.155;
+      var vat = totalExcl * 0.15; // 15% VAT rate
       var totalIncl = totalExcl + vat;
       $('#total_excl').val(totalExcl.toFixed(2));
       $('#vat').val(vat.toFixed(2));
