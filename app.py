@@ -662,36 +662,23 @@ def setup_users():
     # Users should register through the registration page
     pass
 
-# Initialize database and create tables
 def init_db():
     with app.app_context():
         try:
-            # Create tables if they don't exist first
+            # Create all tables
+            print("Creating database tables...")
             db.create_all()
-            db.session.commit()
             print("Database tables created successfully")
             
-            # Import and run the migration script
-            from add_site_field import migrate
-            try:
-                migrate()
-                print("Migration completed successfully")
-            except Exception as e:
-                print(f"Error during migration: {e}")
-                # Continue with setup even if migration fails
-                # This allows the app to start with a fresh database if needed
-            
-            # Refresh the session to ensure all changes are reflected
-            db.session.remove()
-            db.session.begin()
-            
-            # Setup users after migration
+            # Setup initial users if needed
             setup_users()
-            print("Database initialization completed successfully")
+            
         except Exception as e:
-            print(f"Error during database initialization: {e}")
-            db.session.rollback()
+            print(f"Error initializing database: {str(e)}")
             raise
+
+# Initialize the database when the application starts
+init_db()
 
 @app.route("/forgot_password", methods=["GET", "POST"])
 def forgot_password():
@@ -746,7 +733,6 @@ Order Management System"""
     return render_template("forgot_password.html", sites=sites)
 
 if __name__ == "__main__":
-    init_db()
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
 else:
     # This will run when the app is started by Gunicorn on Render
