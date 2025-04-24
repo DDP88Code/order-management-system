@@ -13,12 +13,12 @@
       </select>
     </div>
     <div class="field">
-      <label>Username</label>
-      <input type="text" name="username" id="username" readonly>
+      <label>Email</label>
+      <input type="email" name="email" id="email" placeholder="Enter your email address" required>
     </div>
     <div class="field">
-      <label>Email</label>
-      <input type="email" name="email" placeholder="Enter your email address" required>
+      <label>Username</label>
+      <input type="text" name="username" id="username" readonly>
     </div>
     <div class="field">
       <label>Role</label>
@@ -46,10 +46,9 @@
 </div>
 
 <script>
-  // Auto-populate username based on the selected site.
-  document.getElementById("site").addEventListener("change", function() {
-    var selected = this.value;
-    document.getElementById("username").value = selected;
+  // Auto-populate username based on the email address
+  document.getElementById("email").addEventListener("input", function() {
+    document.getElementById("username").value = this.value;
   });
 
   // Toggle password visibility.
