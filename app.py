@@ -84,61 +84,60 @@ class Order(db.Model):
 ######################################## 
 def send_email_via_outlook(recipient, subject, body, sender=None): 
     try: 
-        # For production (Render), use environment variables for email configuration
-        if os.getenv('RENDER'):
-            import smtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
+        # Try to use local Outlook first (for notifications)
+        try:
+            import pythoncom 
+            import win32com.client as win32 
+            pythoncom.CoInitialize() 
+            outlook = win32.Dispatch('Outlook.Application') 
+            mail = outlook.CreateItem(0)
+            mail.To = recipient 
+            mail.Subject = subject 
+            mail.Body = body 
+            if sender and sender.lower() != recipient.lower(): 
+                mail.SentOnBehalfOfName = sender 
+            mail.Send()
+            pythoncom.CoUninitialize()
+            print(f"Email successfully sent to {recipient} via Outlook")
+            return True
+        except ImportError:
+            print("Warning: pywin32 not installed. Falling back to SMTP.")
+        except Exception as e:
+            print(f"Error using Outlook: {str(e)}. Falling back to SMTP.")
+        
+        # Fallback to SMTP if Outlook fails or is not available
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        
+        msg = MIMEMultipart()
+        msg['From'] = os.getenv('EMAIL_USER', sender or 'noreply@twt.to')
+        msg['To'] = recipient
+        msg['Subject'] = subject
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Get SMTP settings from environment variables
+        smtp_server = os.getenv('SMTP_SERVER', 'smtp.office365.com')
+        smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        email_user = os.getenv('EMAIL_USER')
+        email_password = os.getenv('EMAIL_PASSWORD')
+        
+        if not all([email_user, email_password]):
+            print("Error: Email credentials not properly configured")
+            return False
+        
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(email_user, email_password)
+        server.send_message(msg)
+        server.quit()
+        print(f"Email successfully sent to {recipient} via SMTP")
+        return True
             
-            msg = MIMEMultipart()
-            msg['From'] = os.getenv('EMAIL_USER', sender or 'noreply@twt.to')
-            msg['To'] = recipient
-            msg['Subject'] = subject
-            
-            msg.attach(MIMEText(body, 'plain'))
-            
-            server = smtplib.SMTP(os.getenv('SMTP_SERVER', 'smtp.office365.com'), int(os.getenv('SMTP_PORT', '587')))
-            server.starttls()
-            server.login(os.getenv('EMAIL_USER'), os.getenv('EMAIL_PASSWORD'))
-            server.send_message(msg)
-            server.quit()
-        else:
-            # Local development using Outlook - only import Windows-specific modules when needed
-            try:
-                import pythoncom 
-                import win32com.client as win32 
-                pythoncom.CoInitialize() 
-                outlook = win32.Dispatch('Outlook.Application') 
-                mail = outlook.CreateItem(0)
-                mail.To = recipient 
-                mail.Subject = subject 
-                mail.Body = body 
-                if sender and sender.lower() != recipient.lower(): 
-                    mail.SentOnBehalfOfName = sender 
-                mail.Send()
-                pythoncom.CoUninitialize()
-            except ImportError:
-                print("Warning: pywin32 not installed. Using SMTP fallback for local development.")
-                # Fallback to SMTP even in local development if pywin32 is not available
-                import smtplib
-                from email.mime.text import MIMEText
-                from email.mime.multipart import MIMEMultipart
-                
-                msg = MIMEMultipart()
-                msg['From'] = sender or 'noreply@twt.to'
-                msg['To'] = recipient
-                msg['Subject'] = subject
-                msg.attach(MIMEText(body, 'plain'))
-                
-                server = smtplib.SMTP('smtp.office365.com', 587)
-                server.starttls()
-                server.login(os.getenv('EMAIL_USER'), os.getenv('EMAIL_PASSWORD'))
-                server.send_message(msg)
-                server.quit()
-            
-        print(f"Email successfully sent to {recipient} with subject '{subject}'")
     except Exception as e: 
-        print("Error sending email:", e)
+        print(f"Error sending email: {str(e)}")
+        return False
 
 ######################################## 
 # User Loader for Flask-Login 
@@ -531,34 +530,62 @@ def print_order(order_id):
 def send_to_supplier(order_id):
     order = Order.query.get_or_404(order_id)
     
-    # Render the print_order template to HTML string
-    rendered = render_template("print_order.html", order=order)
-    
-    # Write the HTML to a temporary file
-    temp_html = tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode="w", encoding="utf-8")
-    temp_html.write(rendered)
-    temp_html.close()
-    
-    # Create a temporary file for the PDF
-    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    temp_pdf.close()
-    
     try:
+        # Render the print_order template to HTML string
+        rendered = render_template("print_order.html", order=order)
+        
+        # Write the HTML to a temporary file
+        temp_html = tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode="w", encoding="utf-8")
+        temp_html.write(rendered)
+        temp_html.close()
+        
+        # Create a temporary file for the PDF
+        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        temp_pdf.close()
+        
         if os.getenv('RENDER'):
             # On Render, use Chrome from the system path
-            chrome_executable_path = "google-chrome"
+            chrome_paths = [
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium"
+            ]
+            
+            chrome_executable_path = None
+            for path in chrome_paths:
+                if os.path.exists(path):
+                    chrome_executable_path = path
+                    break
+            
+            if not chrome_executable_path:
+                raise Exception("Chrome executable not found on the system")
         else:
-            # Local development
-            chrome_executable_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            # Local development - try different Chrome paths
+            chrome_paths = [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                os.path.expanduser("~") + r"\AppData\Local\Google\Chrome\Application\chrome.exe"
+            ]
+            
+            chrome_executable_path = None
+            for path in chrome_paths:
+                if os.path.exists(path):
+                    chrome_executable_path = path
+                    break
+            
+            if not chrome_executable_path:
+                raise Exception("Chrome executable not found on the system")
         
         # Build the command to run headless Chrome
         command = [
             chrome_executable_path,
             "--headless",
             "--disable-gpu",
-            "--no-sandbox",  # Required for running Chrome in Docker/Render
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
             f"--print-to-pdf={temp_pdf.name}",
-            "file:///" + temp_html.name
+            "file:///" + temp_html.name.replace("\\", "/")
         ]
         
         # Generate PDF using headless Chrome
@@ -607,14 +634,17 @@ Tiger Wheel & Tyre Team"""
         
     except Exception as e:
         flash(f"Error preparing supplier email: {str(e)}", "error")
+        print(f"Detailed error: {str(e)}")
         
     finally:
         # Clean up temporary files
         try:
-            os.unlink(temp_html.name)
-            os.unlink(temp_pdf.name)
-        except:
-            pass  # Ignore cleanup errors
+            if 'temp_html' in locals():
+                os.unlink(temp_html.name)
+            if 'temp_pdf' in locals():
+                os.unlink(temp_pdf.name)
+        except Exception as e:
+            print(f"Error cleaning up temporary files: {str(e)}")
     
     return redirect(url_for("print_order", order_id=order_id))
 
