@@ -11,69 +11,116 @@
     </a>
   </div>
 
-  <table class="ui celled table" style="margin-top: 1rem;">
+  <table class="ui celled structured table" style="margin-top: 1rem;">
     <thead>
       <tr style="background-color: var(--tiger-black); color: white;">
-        <th>ID</th>
+        <th class="center aligned" style="width: 60px;">ID</th>
         <th>Site</th>
         <th>Supplier</th>
         <th>Description</th>
-        <th>Total Amount</th>
-        <th>Submitter (Emp #, Name)</th>
-        <th>Approver (Emp #, Name)</th>
-        <th>Status</th>
-        <th>Created At</th>
-        <th>Approved At</th>
-        <th>Actions</th>
+        <th class="right aligned">Total Amount</th>
+        <th>Submitter Details</th>
+        <th>Approver Details</th>
+        <th class="center aligned">Status</th>
+        <th>Dates</th>
+        <th class="center aligned">Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for order in orders %}
       <tr>
-        <td>{{ order.id }}</td>
-        <td>{{ order.submitter }}</td>
+        <td class="center aligned">#{{ order.id }}</td>
+        <td><strong>{{ order.site }}</strong></td>
         <td>{{ order.supplier }}</td>
-        <td style="white-space: pre-wrap;">{{ order.description }}</td>
-        <td>{{ "{:.2f}".format(order.amount) }}</td>
+        <td>
+          <div class="order-description" style="max-height: 150px; overflow-y: auto;">
+            {% for line in order.description.split('\n') %}
+              {% if line.strip() %}
+                <div class="description-line" style="margin-bottom: 0.5em;">
+                  {{ line }}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </td>
+        <td class="right aligned">
+          <strong>R {{ "{:,.2f}".format(order.amount) }}</strong>
+        </td>
         <td>
           {% if order.submitter_emp_number and order.submitter_emp_name %}
-            {{ order.submitter_emp_number }}, {{ order.submitter_emp_name }}
+            <div class="ui list">
+              <div class="item">
+                <i class="user circle icon"></i>
+                <div class="content">
+                  <div class="header">{{ order.submitter_emp_name }}</div>
+                  <div class="description">#{{ order.submitter_emp_number }}</div>
+                </div>
+              </div>
+            </div>
           {% else %}
-            N/A
+            <em>N/A</em>
           {% endif %}
         </td>
         <td>
           {% if order.approver_emp_number and order.approver_emp_name %}
-            {{ order.approver_emp_number }}, {{ order.approver_emp_name }}
+            <div class="ui list">
+              <div class="item">
+                <i class="user circle icon"></i>
+                <div class="content">
+                  <div class="header">{{ order.approver_emp_name }}</div>
+                  <div class="description">#{{ order.approver_emp_number }}</div>
+                </div>
+              </div>
+            </div>
           {% else %}
-            N/A
+            <em>N/A</em>
           {% endif %}
         </td>
-        <td>
+        <td class="center aligned">
           {% if order.status == 'pending' %}
-            <span style="color: var(--tiger-red);">{{ order.status }}</span>
+            <div class="ui yellow label">PENDING</div>
           {% elif order.status == 'approved' %}
-            <span style="color: #2ecc71;">{{ order.status }}</span>
+            <div class="ui green label">APPROVED</div>
           {% elif order.status == 'declined' %}
-            <span style="color: #e74c3c;">{{ order.status }}</span>
+            <div class="ui red label">DECLINED</div>
           {% else %}
-            {{ order.status }}
-          {% endif %}
-        </td>
-        <td>{{ order.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-        <td>
-          {% if order.approved_at %}
-            {{ order.approved_at.strftime('%Y-%m-%d %H:%M:%S') }}
-          {% else %}
-            Not Approved
+            <div class="ui grey label">{{ order.status | upper }}</div>
           {% endif %}
         </td>
         <td>
-          {% if order.status == 'pending' and ((order.submitter_role == 'Admin' and current_user.role == 'Manager') or (order.submitter_role == 'Manager' and current_user.role == 'Admin')) %}
-            <button class="ui tiger-button approve-btn" data-order-id="{{ order.id }}">Approve</button>
-            <button class="ui tiger-button secondary decline-btn" data-order-id="{{ order.id }}">Decline</button>
-          {% endif %}
-          <a href="{{ url_for('print_order', order_id=order.id) }}" class="ui tiger-button">Print</a>
+          <div class="ui list">
+            <div class="item">
+              <i class="calendar alternate outline icon"></i>
+              <div class="content">
+                <div class="header">Created</div>
+                <div class="description">{{ order.created_at.strftime('%d %b %Y') }}<br>{{ order.created_at.strftime('%I:%M %p') }}</div>
+              </div>
+            </div>
+            {% if order.approved_at %}
+            <div class="item">
+              <i class="check circle outline icon"></i>
+              <div class="content">
+                <div class="header">{{ order.status | title }}d</div>
+                <div class="description">{{ order.approved_at.strftime('%d %b %Y') }}<br>{{ order.approved_at.strftime('%I:%M %p') }}</div>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+        </td>
+        <td class="center aligned">
+          <div class="ui icon buttons">
+            {% if order.status == 'pending' and ((order.submitter_role == 'Admin' and current_user.role == 'Manager') or (order.submitter_role == 'Manager' and current_user.role == 'Admin')) %}
+              <button class="ui green icon button approve-btn" data-order-id="{{ order.id }}" title="Approve">
+                <i class="check icon"></i>
+              </button>
+              <button class="ui red icon button decline-btn" data-order-id="{{ order.id }}" title="Decline">
+                <i class="times icon"></i>
+              </button>
+            {% endif %}
+            <a href="{{ url_for('print_order', order_id=order.id) }}" class="ui blue icon button" title="Print">
+              <i class="print icon"></i>
+            </a>
+          </div>
         </td>
       </tr>
       {% endfor %}
@@ -198,4 +245,47 @@
     });
   });
 </script>
+
+<style>
+.order-description {
+  font-size: 0.95em;
+  line-height: 1.4;
+}
+
+.description-line {
+  padding: 4px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.description-line:last-child {
+  border-bottom: none;
+}
+
+.ui.table td {
+  padding: 0.7em !important;
+}
+
+.ui.list .item {
+  margin-bottom: 0.5em;
+}
+
+.ui.list .item:last-child {
+  margin-bottom: 0;
+}
+
+.ui.list .item .header {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.ui.list .item .description {
+  color: #666;
+  font-size: 0.9em;
+}
+
+.ui.label {
+  font-weight: 600;
+  padding: 0.5em 1em;
+}
+</style>
 {% endblock %}
