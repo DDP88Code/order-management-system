@@ -121,10 +121,12 @@
     <i class="print icon"></i>
     Print
   </button>
+  <!-- Temporarily hidden Send to Supplier functionality
   <button onclick="handleSupplier()" class="ui tiger-button">
     <i class="paper plane icon"></i>
     Send to Supplier
   </button>
+  -->
   <button onclick="handleBack()" class="ui tiger-button secondary">
     <i class="arrow left icon"></i>
     Back to Orders
@@ -132,9 +134,12 @@
 </div>
 
 <script>
+// Temporarily hidden Send to Supplier functionality
+/*
 function handleSupplier() {
   window.location.href = "{{ url_for('send_to_supplier', order_id=order.id) }}";
 }
+*/
 
 function handleBack() {
   window.location.href = "{{ url_for('index') }}";

@@ -152,7 +152,8 @@ def load_user(user_id):
 @app.route("/") 
 @login_required 
 def index(): 
-    orders = Order.query.order_by(Order.created_at.desc()).all() 
+    # Filter orders by user's site
+    orders = Order.query.filter_by(site=current_user.site).order_by(Order.created_at.desc()).all() 
     # Attach the submitter's role to each order for approval button logic. 
     for order in orders: 
         user = User.query.filter_by(username=order.submitter).first() 
@@ -716,6 +717,58 @@ def init_db():
             print(f"Error during database initialization: {e}")
             db.session.rollback()
             raise
+
+@app.route("/forgot_password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email")
+        site = request.form.get("site")
+        emp_number = request.form.get("emp_number")
+        
+        # Find user with matching email and site
+        user = User.query.filter_by(email=email, site=site).first()
+        
+        if user and user.submitter_emp_number == emp_number:
+            # Generate a temporary password
+            import secrets
+            import string
+            alphabet = string.ascii_letters + string.digits
+            temp_password = ''.join(secrets.choice(alphabet) for i in range(12))
+            
+            # Update user's password
+            user.password = temp_password
+            db.session.commit()
+            
+            # Send email with temporary password
+            subject = "Password Reset - Order Management System"
+            body = f"""Dear {user.username},
+
+Your password has been reset. Here are your new login credentials:
+
+Username: {user.email}
+Temporary Password: {temp_password}
+
+Please log in and change your password immediately.
+
+Best regards,
+Order Management System"""
+            
+            if send_email_via_outlook(user.email, subject, body):
+                flash("A temporary password has been sent to your email address.", "success")
+            else:
+                flash("Error sending email. Please contact your system administrator.", "error")
+        else:
+            flash("No matching user found with the provided information.", "error")
+            
+        return redirect(url_for("login"))
+        
+    # GET request - show the form
+    sites = { 
+        "TWT Alberton": "TWT Alberton",
+        "TWT Amanzimtoti": "TWT Amanzimtoti",
+        # ... existing sites ...
+    }
+    return render_template("forgot_password.html", sites=sites)
 
 if __name__ == "__main__":
     init_db()
