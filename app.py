@@ -14,6 +14,11 @@ import tempfile
 import os
 import subprocess
 from dotenv import load_dotenv
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from itsdangerous import URLSafeTimedSerializer
+from werkzeug.security import generate_password_hash, check_password_hash # Added for password hashing
 
 # Load environment variables
 load_dotenv()
@@ -43,6 +48,9 @@ db = SQLAlchemy(app)
 # Setup Flask-Login 
 login_manager = LoginManager(app) 
 login_manager.login_view = "login" 
+
+# Initialize token serializer (outside routes, needs app context technically but SECRET_KEY is enough here)
+s = URLSafeTimedSerializer(app.config['SECRET_KEY'])
 
 ######################################## 
 # Database Models 
@@ -80,143 +88,61 @@ class Order(db.Model):
         return f"<Order {self.id} - {self.status}>" 
 
 ######################################## 
-# Outlook Email Helper Using COM 
-######################################## 
+# SMTP Email Helper
+########################################
 def send_via_smtp(recipient, subject, body, sender=None):
     """
-    Send an email using SMTP with the current user's credentials.
+    Send an email using SMTP with credentials from environment variables.
     """
+    smtp_server = os.getenv("SMTP_SERVER")
+    smtp_port_str = os.getenv("SMTP_PORT")
+    smtp_username = os.getenv("SMTP_USERNAME")
+    smtp_password = os.getenv("SMTP_PASSWORD") # Use App Password if MFA is enabled
+
+    if not all([smtp_server, smtp_port_str, smtp_username, smtp_password]):
+        print("SMTP configuration missing in environment variables. Cannot send email.")
+        flash("Email notification configuration error. Please contact admin.", "error")
+        return False
+
     try:
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        
-        # Use the current user's email as the sender
-        if not sender and current_user:
-            sender = current_user.email
-            
-        if not sender:
-            raise ValueError("No sender email address available")
-            
+        smtp_port = int(smtp_port_str)
+    except ValueError:
+        print(f"Invalid SMTP_PORT: {smtp_port_str}. Must be an integer.")
+        flash("Email notification configuration error (port). Please contact admin.", "error")
+        return False
+
+    # Use the configured SMTP username as the default sender if none is provided
+    actual_sender = sender or smtp_username
+
+    try:
         # Create message
         msg = MIMEMultipart()
-        msg['From'] = sender
+        msg['From'] = actual_sender
         msg['To'] = recipient
         msg['Subject'] = subject
         msg.attach(MIMEText(body, 'plain'))
-        
-        # Try different SMTP configurations
-        smtp_configs = [
-            {
-                'server': 'smtp-mail.outlook.com',
-                'port': 587,
-                'use_tls': True
-            },
-            {
-                'server': 'outlook.office365.com',
-                'port': 587,
-                'use_tls': True
-            }
-        ]
-        
-        last_error = None
-        for config in smtp_configs:
-            try:
-                print(f"Attempting to send via {config['server']}...")
-                server = smtplib.SMTP(config['server'], config['port'])
-                if config['use_tls']:
-                    server.starttls()
-                
-                # Try to send without authentication first
-                try:
-                    server.send_message(msg)
-                    print(f"Email sent successfully via {config['server']}")
-                    return True
-                except smtplib.SMTPException as e:
-                    print(f"Direct send failed: {str(e)}")
-                    # If direct send fails, try to use the default Windows credentials
-                    try:
-                        import win32com.client
-                        outlook = win32com.client.Dispatch("Outlook.Application")
-                        mail = outlook.CreateItem(0)
-                        mail.Subject = subject
-                        mail.Body = body
-                        mail.To = recipient
-                        mail.Send()
-                        print("Email sent via Outlook COM")
-                        return True
-                    except Exception as com_error:
-                        print(f"Outlook COM error: {str(com_error)}")
-                        raise
-                finally:
-                    try:
-                        server.quit()
-                    except:
-                        pass
-                        
-            except Exception as e:
-                last_error = str(e)
-                print(f"Failed with {config['server']}: {last_error}")
-                continue
-                
-        if last_error:
-            print(f"All SMTP configurations failed. Last error: {last_error}")
-            return False
-            
-    except Exception as smtp_error:
-        error_msg = str(smtp_error)
-        print(f"SMTP Error: {error_msg}")
-        print("Note: Make sure you are logged into Outlook on your computer")
-        return False
 
-def send_email_via_outlook(recipient, subject, body, sender=None):
-    """
-    Send an email using the local Outlook application.
-    Displays the email for manual review and sending.
-    
-    Args:
-        recipient (str): Email address of the recipient
-        subject (str): Email subject
-        body (str): Email body content
-        sender (str, optional): Sender's email address
-        
-    Returns:
-        bool: True if email was prepared successfully, False otherwise
-    """
-    try:
-        # Try to use the local Outlook application
-        try:
-            import win32com.client
-            outlook = win32com.client.Dispatch("Outlook.Application")
-            mail = outlook.CreateItem(0)  # 0 = olMailItem
-            
-            # Set email properties
-            mail.Subject = subject
-            mail.Body = body
-            mail.To = recipient
-            if sender:
-                mail.SentOnBehalfOfName = sender
-            
-            # Display the email for review instead of sending automatically
-            mail.Display()
-            print(f"Email displayed in Outlook for {recipient}")
-            return True
-            
-        except ImportError:
-            # If win32com is not available, show a message about using Outlook directly
-            print("Please use your local Outlook application to send this email:")
-            print(f"To: {recipient}")
-            print(f"Subject: {subject}")
-            print("Body:")
-            print(body)
-            return True
-            
-        except Exception as e:
-            print(f"Error preparing email in Outlook: {str(e)}")
-            return False
-            
+        print(f"Attempting to send email via {smtp_server}:{smtp_port} from {actual_sender} to {recipient}")
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()  # Enable security
+        server.login(smtp_username, smtp_password)
+        server.send_message(msg)
+        server.quit()
+        print("Email sent successfully via SMTP.")
+        return True
+
+    except smtplib.SMTPAuthenticationError:
+        print("SMTP Authentication Error: Check username/password (use App Password if MFA enabled).")
+        flash("Failed to send email notification due to authentication error.", "error")
+        return False
+    except smtplib.SMTPConnectError:
+        print(f"SMTP Connection Error: Could not connect to {smtp_server}:{smtp_port}.")
+        flash("Failed to send email notification due to connection error.", "error")
+        return False
     except Exception as e:
-        print(f"Unexpected error in send_email_via_outlook: {str(e)}")
+        error_msg = str(e)
+        print(f"General SMTP Error: {error_msg}")
+        flash("An unexpected error occurred while sending the email notification.", "error")
         return False
 
 ######################################## 
@@ -243,21 +169,23 @@ def index():
             order.submitter_role = "Unknown" 
     return render_template("index.html", orders=orders) 
 
-@app.route("/login", methods=["GET", "POST"]) 
-def login(): 
-    if current_user.is_authenticated: 
-        return redirect(url_for("index")) 
-    if request.method == "POST": 
-        username = request.form.get("username") 
-        password = request.form.get("password") 
-        user = User.query.filter_by(username=username).first() 
-        if user and user.password == password: 
-            login_user(user) 
-            flash("Welcome back! You have successfully logged in.", "success") 
-            return redirect(url_for("index")) 
-        else: 
-            flash("Invalid username or password. Please try again.", "error") 
-    return render_template("login.html") 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        username = request.form.get("username") # This is the email
+        password = request.form.get("password")
+        user = User.query.filter_by(username=username).first()
+
+        # *** Use check_password_hash for verification ***
+        if user and check_password_hash(user.password, password):
+            login_user(user)
+            flash("Welcome back! You have successfully logged in.", "success")
+            return redirect(url_for("index"))
+        else:
+            flash("Invalid username or password. Please try again.", "error")
+    return render_template("login.html")
 
 @app.route("/logout") 
 @login_required 
@@ -406,17 +334,20 @@ def register():
             flash("An account with this email address already exists. Please log in.", "danger") 
             return redirect(url_for("login")) 
 
-        # Create new user with email as username
+        # *** Hash the password before saving ***
+        hashed_password = generate_password_hash(password)
+
+        # Create new user with email as username and hashed password
         new_user = User(
             username=email,  # Use email as username
             email=email,
-            password=password,
+            password=hashed_password, # Store the hash
             role=selected_role,
             site=site
-        ) 
-        db.session.add(new_user) 
-        db.session.commit() 
-        flash("Account created successfully! Please log in.", "success") 
+        )
+        db.session.add(new_user)
+        db.session.commit()
+        flash("Account created successfully! Please log in.", "success")
         return redirect(url_for("login")) 
     return render_template("register.html", sites=sites, roles=roles) 
 
@@ -507,8 +438,8 @@ def create_order():
                 f"Submitter (Emp #, Name): {new_order.submitter_emp_number}, {new_order.submitter_emp_name}\n\n"
                 "Please log in to review and approve the order."
             )
-            send_email_via_outlook(recipient=approver.email, subject=subject, body=body, sender=current_user.email)
-            flash(f"Notification sent to {approver.email} for approval.", "info")
+            if send_via_smtp(recipient=approver.email, subject=subject, body=body):
+                flash(f"Notification sent to {approver.email} for approval.", "info")
         else:
             flash(f"No {approver_role} found at {user.site} to notify.", "warning")
             
@@ -544,16 +475,16 @@ def approve_order(order_id):
         flash(f"Order #{order.id} has been successfully approved.", "success") 
         
         # Send email to the submitter
-        subject = "Your Order Has Been Approved" 
-        body = ( 
-            f"Dear {submitter_obj.role},\n\n" 
-            f"Your order (ID: {order.id}) at {order.site} has been approved by {current_user.username} ({current_user.role}).\n" 
-            f"Approver (Emp #, Name): {order.approver_emp_number}, {order.approver_emp_name}\n" 
-            "You can now proceed to print the order.\n\n" 
-            "Best regards,\nOrder Management System" 
-        ) 
-        send_email_via_outlook(recipient=submitter_obj.email, subject=subject, body=body, sender=current_user.email) 
-        flash(f"Notification sent to {submitter_obj.email} regarding approval.", "info") 
+        subject = "Your Order Has Been Approved"
+        body = (
+            f"Dear {submitter_obj.role},\n\n"
+            f"Your order (ID: {order.id}) at {order.site} has been approved by {current_user.username} ({current_user.role}).\n"
+            f"Approver (Emp #, Name): {order.approver_emp_number}, {order.approver_emp_name}\n"
+            "You can now proceed to print the order.\n\n"
+            "Best regards,\nOrder Management System"
+        )
+        if send_via_smtp(recipient=submitter_obj.email, subject=subject, body=body):
+            flash(f"Notification sent to {submitter_obj.email} regarding approval.", "info")
     else: 
         flash("You are not authorized to approve this order.", "danger") 
     return redirect(url_for("index")) 
@@ -593,8 +524,8 @@ def decline_order(order_id):
             f"Decliner (Emp #, Name): {order.approver_emp_number}, {order.approver_emp_name}\n\n"
             "Please contact your approver for more information."
         )
-        send_email_via_outlook(recipient=submitter_obj.email, subject=subject, body=body, sender=current_user.email)
-        flash(f"Notification sent to {submitter_obj.email} regarding decline.", "info")
+        if send_via_smtp(recipient=submitter_obj.email, subject=subject, body=body):
+            flash(f"Notification sent to {submitter_obj.email} regarding decline.", "info")
     else:
         flash("You are not authorized to decline this order.", "danger")
     return redirect(url_for("index"))
@@ -611,88 +542,11 @@ def print_order(order_id):
 def send_to_supplier(order_id):
     """
     Generate PDF for order and prepare email to supplier.
+    *** Needs significant update to use SMTP and handle attachments ***
     """
-    try:
-        # Get order details
-        order = Order.query.get_or_404(order_id)
-        
-        # Create temporary files
-        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as html_file, \
-             tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as pdf_file:
-            
-            # Render order template to HTML
-            html_content = render_template('print_order.html', order=order)
-            html_file.write(html_content.encode('utf-8'))
-            html_file.flush()
-            
-            # Find Chrome executable
-            chrome_paths = [
-                # Windows paths
-                r'C:\Program Files\Google\Chrome\Application\chrome.exe',
-                r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
-                os.path.expandvars(r'%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe'),
-                # Linux paths
-                '/usr/bin/google-chrome',
-                '/usr/bin/google-chrome-stable',
-                '/usr/bin/chromium',
-                '/usr/bin/chromium-browser'
-            ]
-            
-            chrome_exe = None
-            for path in chrome_paths:
-                if os.path.exists(path):
-                    chrome_exe = path
-                    break
-                    
-            if not chrome_exe:
-                raise FileNotFoundError("Chrome executable not found. Please ensure Chrome is installed.")
-            
-            # Generate PDF using Chrome
-            cmd = [
-                chrome_exe,
-                '--headless',
-                '--disable-gpu',
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                f'--print-to-pdf={pdf_file.name}',
-                f'file:///{html_file.name}'
-            ]
-            
-            subprocess.run(cmd, check=True, capture_output=True)
-            
-            # Prepare email content
-            subject = f'Order #{order.id} from {order.submitter_name}'
-            body = f"""Please find attached the order details for Order #{order.id}.
-
-Order Details:
-Submitted by: {order.submitter_name}
-Date: {order.created_at.strftime('%Y-%m-%d %H:%M:%S')}
-Status: {order.status}
-
-Please process this order according to the specifications in the attached PDF.
-
-Best regards,
-{current_user.name}"""
-            
-            # Send email with PDF attachment
-            send_email_via_outlook(
-                recipient=order.supplier_email,
-                subject=subject,
-                body=body,
-                sender=current_user.email
-            )
-            
-            # Clean up temporary files
-            try:
-                os.unlink(html_file.name)
-                os.unlink(pdf_file.name)
-            except Exception as e:
-                print(f"Warning: Could not delete temporary files: {str(e)}")
-            
-            return jsonify({'message': 'Email prepared with order details'}), 200
-            
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    flash("Send to Supplier functionality needs update for SMTP.", "warning")
+    # Placeholder - redirect back or show message
+    return redirect(url_for('index'))
 
 @app.route("/health")
 def health_check():
@@ -738,55 +592,38 @@ def forgot_password():
     if request.method == "POST":
         email = request.form.get("email")
         site = request.form.get("site")
-        new_password = request.form.get("new_password")
-        
+
         # Find user with matching email and site
         user = User.query.filter_by(email=email, site=site).first()
-        
+
         if user:
-            # Validate password
-            password_errors = []
-            if len(new_password) < 8:
-                password_errors.append("at least 8 characters")
-            if not re.search(r'[A-Z]', new_password):
-                password_errors.append("one uppercase letter")
-            if not re.search(r'\d', new_password):
-                password_errors.append("one number")
-            if not re.search(r'[\W_]', new_password):
-                password_errors.append("one special character")
-                
-            if password_errors:
-                flash(f"Password must contain {', '.join(password_errors)}.", "error")
-                return render_template("forgot_password.html", sites=sites)
-            
-            # Update user's password
-            user.password = new_password
-            db.session.commit()
-            
-            # Send confirmation email
-            subject = "Password Reset Confirmation - Order Management System"
+            # Generate a time-sensitive token containing the user's ID
+            token = s.dumps(user.id, salt='password-reset-salt') # Salt adds extra security
+            reset_url = url_for('reset_password', token=token, _external=True) # _external=True creates full URL
+
+            # Send password reset email
+            subject = "Password Reset Request - Order Management System"
             body = f"""Dear {user.username},
 
-Your password has been successfully reset.
+Please click the link below to reset your password. This link is valid for 1 hour.
 
-If you did not request this change, please contact your system administrator immediately.
+{reset_url}
+
+If you did not request this change, please ignore this email.
 
 Best regards,
 Order Management System"""
-            
-            if send_email_via_outlook(user.email, subject, body):
-                flash("Your password has been successfully reset. You can now log in with your new password.", "success")
-            else:
-                flash("Password reset successful, but there was an error sending the confirmation email.", "warning")
-                
-            return redirect(url_for("login"))
-        else:
-            flash("No matching user found with the provided email and site.", "error")
-            
+
+            send_via_smtp(user.email, subject, body)
+            # No specific success flash here for security
+
+        # Always show a generic message to prevent user enumeration
+        flash("If an account with that email and site exists, a password reset link has been sent.", "info")
         return redirect(url_for("login"))
-        
-    # GET request - show the form
-    sites = { 
+
+    # GET request - show the form to request a reset link
+    # Regenerate sites dictionary here as it's needed by the template
+    sites = {
         "TWT Alberton": "TWT Alberton",
         "TWT Amanzimtoti": "TWT Amanzimtoti",
         "TWT Balfour Park": "TWT Balfour Park",
@@ -882,3 +719,57 @@ Order Management System"""
         "TWT Woodmead": "TWT Woodmead"
     }
     return render_template("forgot_password.html", sites=sites)
+
+# New route for handling the actual password reset
+@app.route('/reset_password/<token>', methods=["GET", "POST"])
+def reset_password(token):
+    try:
+        user_id = s.loads(token, salt='password-reset-salt', max_age=3600)
+    except Exception as e:
+        print(f"Password reset token error: {e}")
+        flash('The password reset link is invalid or has expired.', 'danger')
+        return redirect(url_for('forgot_password'))
+
+    user = User.query.get(user_id)
+    if not user:
+        flash('User not found.', 'danger')
+        return redirect(url_for('forgot_password'))
+
+    if request.method == 'POST':
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+
+        if new_password != confirm_password:
+            flash('Passwords do not match.', 'danger')
+            return render_template('reset_password.html', token=token)
+
+        # Validate password complexity (reuse logic from registration)
+        password_errors = []
+        if len(new_password) < 8:
+            password_errors.append("at least 8 characters")
+        if not re.search(r'[A-Z]', new_password):
+            password_errors.append("one uppercase letter")
+        if not re.search(r'\d', new_password):
+            password_errors.append("one number")
+        if not re.search(r'[\W_]', new_password):
+            password_errors.append("one special character")
+
+        if password_errors:
+            flash(f"Password must contain {', '.join(password_errors)}.", "error")
+            return render_template('reset_password.html', token=token)
+
+        # *** Hash the new password before updating ***
+        hashed_password = generate_password_hash(new_password)
+        user.password = hashed_password # Store the hash
+        db.session.commit()
+
+        # (Optional: Send confirmation email that password was changed)
+        # subject_confirm = "Password Changed Confirmation"
+        # body_confirm = "Your password has been successfully changed."
+        # send_via_smtp(user.email, subject_confirm, body_confirm)
+
+        flash('Your password has been successfully reset. Please log in.', 'success')
+        return redirect(url_for('login'))
+
+    # GET request: Show the password reset form
+    return render_template('reset_password.html', token=token)

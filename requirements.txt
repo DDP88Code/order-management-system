@@ -1,9 +1,13 @@
-Flask==2.3.3
-Werkzeug==2.3.7
-Flask-SQLAlchemy==3.1.1
-Flask-Login==0.6.2
-Flask-WTF==1.1.1
-psycopg2-binary==2.9.7
-gunicorn==21.2.0
-selenium==4.11.2
-python-dotenv==1.0.0 
+Flask>=2.3,<3.0 # Using Werkzeug for hashing
+Werkzeug>=2.3,<3.0 # Added for hashing
+Flask-SQLAlchemy>=3.1,<4.0
+Flask-Login>=0.6,<0.7
+Flask-WTF>=1.1,<1.2
+psycopg2-binary>=2.9,<2.10 # For PostgreSQL on Render
+gunicorn>=21.0,<22.0
+# selenium==4.11.2 # Commented out unless needed for specific testing/features
+python-dotenv>=1.0,<2.0
+itsdangerous>=2.0,<3.0 # Added for secure tokens
+
+# Optional: Required only for Windows machines using Outlook integration (Now removed from app.py)
+# pywin32==306 
