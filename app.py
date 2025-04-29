@@ -19,6 +19,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from itsdangerous import URLSafeTimedSerializer
 from werkzeug.security import generate_password_hash, check_password_hash # Added for password hashing
+from sqlalchemy import text # <--- Add this import
 
 # Load environment variables
 load_dotenv()
@@ -61,7 +62,7 @@ class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True) 
     username = db.Column(db.String(50), unique=True, nullable=False)  # Auto-populated from selected Site. 
     email = db.Column(db.String(120), nullable=False) 
-    password = db.Column(db.String(50), nullable=False)  # For demo purposes only. 
+    password = db.Column(db.String(255), nullable=False)  # Increased length for password hash
     role = db.Column(db.String(20), nullable=False)  # "Admin" or "Manager" 
     site = db.Column(db.String(100), nullable=False)  # Store the selected site
     def __repr__(self): 
@@ -777,3 +778,22 @@ def reset_password(token):
 
     # GET request: Show the password reset form
     return render_template('reset_password.html', token=token)
+
+########################################
+# TEMPORARY MIGRATION ROUTE - REMOVE AFTER USE
+########################################
+@app.route('/_temporary_migrate_user_password_length_v1')
+def temporary_migration_route():
+    try:
+        with app.app_context(): # Ensure we have app context
+            # Execute the raw SQL to alter the table
+            db.session.execute(text('ALTER TABLE "user" ALTER COLUMN password TYPE VARCHAR(255);'))
+            db.session.commit()
+            flash("Database migration for user password length completed successfully.", "success")
+            return "Migration successful! You can now remove this route from app.py."
+    except Exception as e:
+        db.session.rollback() # Rollback in case of error
+        error_msg = f"Database migration failed: {str(e)}"
+        print(error_msg)
+        flash(error_msg, "error")
+        return error_msg, 500
