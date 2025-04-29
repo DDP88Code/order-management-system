@@ -94,13 +94,15 @@ def send_via_smtp(recipient, subject, body, sender=None):
     """
     Send an email using SMTP with credentials from environment variables.
     """
-    smtp_server = os.getenv("SMTP_SERVER")
-    smtp_port_str = os.getenv("SMTP_PORT")
-    smtp_username = os.getenv("SMTP_USERNAME")
-    smtp_password = os.getenv("SMTP_PASSWORD") # Use App Password if MFA is enabled
+    # Provide default values matching the new SMTP configuration
+    smtp_server = os.getenv("SMTP_HOST", "smtp-relay.brevo.com")
+    smtp_port_str = os.getenv("SMTP_PORT", "587")
+    smtp_username = os.getenv("SMTP_USER", "ariatokenmanager@gmail.com")
+    smtp_password = os.getenv("SMTP_PASS", "ff0bb8f29cb2a7f4705c8fda757df72e653be6f1c092a6f4a559a17109e3321f-fRqMAPtEnJzrWU2y") # Use App Password if MFA is enabled
+    email_from = os.getenv("EMAIL_FROM", "ariatokenmanager@gmail.com") # Get EMAIL_FROM for default sender
 
-    if not all([smtp_server, smtp_port_str, smtp_username, smtp_password]):
-        print("SMTP configuration missing in environment variables. Cannot send email.")
+    if not all([smtp_server, smtp_port_str, smtp_username, smtp_password, email_from]):
+        print("SMTP configuration missing in environment variables or defaults. Cannot send email.")
         flash("Email notification configuration error. Please contact admin.", "error")
         return False
 
@@ -111,8 +113,8 @@ def send_via_smtp(recipient, subject, body, sender=None):
         flash("Email notification configuration error (port). Please contact admin.", "error")
         return False
 
-    # Use the configured SMTP username as the default sender if none is provided
-    actual_sender = sender or smtp_username
+    # Use the configured EMAIL_FROM as the default sender if none is provided
+    actual_sender = sender or email_from
 
     try:
         # Create message
