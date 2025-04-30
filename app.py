@@ -103,8 +103,19 @@ def send_via_smtp(recipient, subject, body, sender=None):
     """
     Send an email using SMTP with credentials from environment variables.
     """
-    # Add debug prints
-    print("Debug: Checking SMTP configuration")
+    # More detailed debug prints
+    print("\n=== SMTP Configuration Debug ===")
+    print("Environment Variables Present:")
+    for key in os.environ:
+        if 'SMTP' in key:
+            print(f"{key}: {'[SET]' if os.environ[key] else '[EMPTY]'}")
+    
+    print("\nDirect Environment Access:")
+    smtp_user = os.environ.get('SMTP_USER')
+    print(f"SMTP_USER direct access: {smtp_user}")
+    
+    # Original debug prints
+    print("\nStandard Environment Variable Checks:")
     print(f"SMTP_HOST: {os.getenv('SMTP_HOST')}")
     print(f"SMTP_PORT: {os.getenv('SMTP_PORT')}")
     print(f"SMTP_USER: {os.getenv('SMTP_USER')}")
@@ -118,7 +129,12 @@ def send_via_smtp(recipient, subject, body, sender=None):
 
     # Check if required variables are present
     if not all([smtp_server, smtp_port_str, smtp_username, smtp_password]):
-        print("SMTP configuration missing in environment variables. Cannot send email.")
+        missing = []
+        if not smtp_server: missing.append("SMTP_HOST")
+        if not smtp_port_str: missing.append("SMTP_PORT")
+        if not smtp_username: missing.append("SMTP_USER")
+        if not smtp_password: missing.append("SMTP_PASS")
+        print(f"\nMissing SMTP configuration: {', '.join(missing)}")
         flash("Email notification configuration error. Please contact admin.", "error")
         return False
 
