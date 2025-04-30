@@ -94,6 +94,13 @@ def send_via_smtp(recipient, subject, body, sender=None):
     """
     Send an email using SMTP with credentials from environment variables.
     """
+    # Add debug prints
+    print("Debug: Checking SMTP configuration")
+    print(f"SMTP_HOST: {os.getenv('SMTP_HOST')}")
+    print(f"SMTP_PORT: {os.getenv('SMTP_PORT')}")
+    print(f"SMTP_USER: {os.getenv('SMTP_USER')}")
+    print(f"SMTP_PASS: {'Set' if os.getenv('SMTP_PASS') else 'Not Set'}")
+
     # Get SMTP configuration from environment variables
     smtp_server = os.getenv("SMTP_HOST")
     smtp_port_str = os.getenv("SMTP_PORT")
