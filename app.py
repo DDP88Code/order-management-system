@@ -21,7 +21,16 @@ from itsdangerous import URLSafeTimedSerializer
 from werkzeug.security import generate_password_hash, check_password_hash # Added for password hashing
 
 # Load environment variables
-load_dotenv()
+from pathlib import Path
+env_path = Path(__file__).resolve().parent / '.env'
+print(f"Looking for .env file at: {env_path}")
+print(f"File exists: {env_path.exists()}")
+load_dotenv(dotenv_path=env_path)
+print("Environment after load_dotenv:")
+print(f"SMTP_HOST: {os.getenv('SMTP_HOST')}")
+print(f"SMTP_PORT: {os.getenv('SMTP_PORT')}")
+print(f"SMTP_USER: {os.getenv('SMTP_USER')}")
+print(f"SMTP_PASS: {'Set' if os.getenv('SMTP_PASS') else 'Not Set'}")
 
 app = Flask(__name__, template_folder="templates") 
 
